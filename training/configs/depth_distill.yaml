@@ -4,10 +4,10 @@
 #
 # distill_cfg_coef 2.0 bakes guidance in (the README's parity recipe);
 # 1.0 = pure depth distillation.
-model_config: pocket_tts/config/english.yaml   # 6-layer student
+model_config: pocket_tts_timestamped/config/english.yaml   # 6-layer student
 start_from_pretrained: false
 distill_cfg_coef: 2.0
-distill_teacher_config: pocket_tts/config/english.yaml
+distill_teacher_config: pocket_tts_timestamped/config/english.yaml
 distill_teacher_overrides:
   flow_lm.transformer.num_layers: 24
 distill_teacher_weights: runs/scratch/checkpoint_00400000.pt

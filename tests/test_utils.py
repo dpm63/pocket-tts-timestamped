@@ -2,7 +2,7 @@ from pathlib import Path
 
 import pytest
 
-from pocket_tts.utils import utils
+from pocket_tts_timestamped.utils import utils
 
 
 def test_download_http_cache_suffix_ignores_query_string(

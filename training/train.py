@@ -25,7 +25,7 @@ import torch
 from torch import nn
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from pocket_tts.models.mimi import MimiModel
+from pocket_tts_timestamped.models.mimi import MimiModel
 from training.args import TrainArgs, dump_args, load_args, save_args
 from training.checkpointing import EMA, latest_checkpoint, load_checkpoint, save_checkpoint
 from training.dataloader import DataLoader, SubprocessDataLoader, encode_batch

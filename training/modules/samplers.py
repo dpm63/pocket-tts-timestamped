@@ -20,7 +20,7 @@ from typing import Literal
 import torch
 from torch import nn
 
-from pocket_tts.models.flow_lm import FlowNet, lsd_decode, ot_decode
+from pocket_tts_timestamped.models.flow_lm import FlowNet, lsd_decode, ot_decode
 
 from .utils import MLP, f_grad_x_only, zero_init
 

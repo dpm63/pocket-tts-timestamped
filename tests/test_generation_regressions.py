@@ -6,9 +6,9 @@ from typing import NoReturn, cast
 import pytest
 import torch
 
-import pocket_tts.models.tts_model as tts_model_module
-from pocket_tts.models.tts_model import TTSModel, _is_safetensors_source
-from pocket_tts.modules.text_conditioner import SentencePieceTokenizer
+import pocket_tts_timestamped.models.tts_model as tts_model_module
+from pocket_tts_timestamped.models.tts_model import TTSModel, _is_safetensors_source
+from pocket_tts_timestamped.modules.text_conditioner import SentencePieceTokenizer
 
 
 def test_generate_audio_stream_uses_prepared_chunk_text(monkeypatch: pytest.MonkeyPatch):

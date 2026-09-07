@@ -42,7 +42,7 @@ This will run the test suite with 3 parallel workers.
 You can run the CLI commands with:
 
 ```bash
-uv run pocket-tts generate
+uv run pocket-tts-timestamped generate
 ```
 
 ## Coding agents
@@ -81,8 +81,8 @@ language, a new domain, your own data — we encourage you to share it. The
 [training README](training/README.md) covers the whole path, from preparing a
 dataset to training, and its
 [Distribution section](training/README.md#distribution) explains how to
-publish the result on Hugging Face so that anyone can use it with the official
-`pocket-tts` CLI. If you tell us about it, we are happy to link it from the
+publish the result on Hugging Face so that anyone can use it with the
+`pocket-tts-timestamped` CLI. If you tell us about it, we are happy to link it from the
 README.
 
 ## About the overall process

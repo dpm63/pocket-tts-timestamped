@@ -13,10 +13,10 @@ from pathlib import Path
 import torch
 from typer.testing import CliRunner
 
-from pocket_tts import TTSModel
-from pocket_tts.main import cli_app
-from pocket_tts.modules.transformer import StreamingTransformerLayer
-from pocket_tts.quantization import _get_backend
+from pocket_tts_timestamped import TTSModel
+from pocket_tts_timestamped.main import cli_app
+from pocket_tts_timestamped.modules.transformer import StreamingTransformerLayer
+from pocket_tts_timestamped.quantization import _get_backend
 
 SHORT_TEXT = "Hello, this is a test."
 TEST_VOICE = "alba"

@@ -10,7 +10,7 @@ import torch
 from fastapi.testclient import TestClient
 from typer.testing import CliRunner
 
-from pocket_tts import main
+from pocket_tts_timestamped import main
 
 runner = CliRunner()
 

@@ -1,1 +1,1 @@
-::: pocket_tts.models.tts_model.TTSModel
+::: pocket_tts_timestamped.models.tts_model.TTSModel

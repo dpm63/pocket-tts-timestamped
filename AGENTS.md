@@ -27,8 +27,8 @@ uv run pytest -n 3 -v
 uv run pytest tests/test_python_api.py -v
 
 # Run CLI locally (editable install)
-uv run pocket-tts generate
-uv run pocket-tts serve
+uv run pocket-tts-timestamped generate
+uv run pocket-tts-timestamped serve
 ```
 
 ### Linting and Formatting
@@ -43,7 +43,7 @@ This is a pure Python package with Rust extensions in `training/rust_exts/audio_
 
 ## Code Structure
 
-### Main Package (`pocket_tts/`)
+### Main Package (`pocket_tts_timestamped/`)
 
 **Entry Points:**
 - `main.py`: CLI implementation with Typer (commands: `generate`, `serve`, and web interface)

@@ -1,6 +1,74 @@
-# Pocket TTS
+# Pocket TTS Timestamped
 
-<img width="1446" height="622" alt="pocket-tts-logo-v2-transparent" src="https://github.com/user-attachments/assets/637b5ed6-831f-4023-9b4c-741be21ab238" />
+Fork of [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) that adds word-level timestamps for streaming and non-streaming generation.
+
+## Quick start
+
+### Installation
+
+```bash
+pip install pocket-tts-timestamped
+```
+
+or:
+
+```bash
+uv add pocket-tts-timestamped
+```
+
+Pocket TTS supports Python 3.10 through 3.14 and requires PyTorch 2.5 or newer.
+
+### Generate audio with word timestamps
+
+```python
+from pocket_tts_timestamped import TTSModel
+
+model = TTSModel.load_model()
+voice = model.get_state_for_audio_prompt("alba")
+
+result = model.generate_audio_with_timestamps(voice, "Hello world!")
+for word in result.words:
+    print(word.word, word.start_time, word.end_time)
+process_audio(result.audio)
+```
+
+### Streaming timestamps
+
+```python
+from pocket_tts_timestamped import TTSModel, AudioChunk, WordEnd, WordStart
+
+model = TTSModel.load_model()
+voice = model.get_state_for_audio_prompt("alba")
+
+stream = model.generate_audio_with_timestamps_stream(voice, "Hello world!")
+for event in stream:
+    if isinstance(event, AudioChunk):
+        process_audio(event.audio)
+    elif isinstance(event, WordStart):
+        print("start", event.word_index, event.word, event.start_time)
+    elif isinstance(event, WordEnd):
+        print("end", event.word_index, event.word, event.end_time)
+```
+
+### Checkpoint support
+All official Pocket TTS checkpoints are supported, but accuracy differs between them.
+Evaluation results, MAE is measured against CrisperWhisper 2.0 large:
+| Checkpoint          | Head        | Samples | Words | Skip rate | Start/end MAE |
+|---------------------|-------------|---------|-------|-----------|---------------|
+| English 2026-04     | L3H8        | 441     | 3,932 | 0.0000%   | 49.38 ms      |
+| English 2026-04 24L | L14H10      | 425     | 3,814 | 0.0000%   | 44.48 ms      |
+| English 2026-01     | L3H8        | 465     | 3,772 | 0.0000%   | 78.77 ms      |
+| French 24L          | L11H9+L17H8 | 263     | 2,162 | 0.1850%   | 72.91 ms      |
+| German              | L3H6        | 309     | 2,610 | 0.0000%   | 64.26 ms      |
+| German 24L          | L3H6+L16H6  | 277     | 2,385 | 0.0000%   | 69.90 ms      |
+| Italian             | L4H0        | 314     | 2,861 | 0.0000%   | 68.10 ms      |
+| Italian 24L         | L4H0+L15H12 | 329     | 2,871 | 0.0000%   | 97.57 ms      |
+| Portuguese          | L3H14       | 283     | 2,411 | 0.0000%   | 59.90 ms      |
+| Portuguese 24L      | L3H14+L15H9 | 311     | 2,633 | 0.0000%   | 110.30 ms     |
+| Spanish             | L2H3        | 246     | 2,303 | 0.0434%   | 88.47 ms      |
+| Spanish 24L         | L6H9        | 291     | 2,574 | 0.0000%   | 74.82 ms      |
+
+# About Pocket TTS
 
 A lightweight text-to-speech (TTS) application designed to run efficiently on CPUs.
 Forget about the hassle of using GPUs and web APIs serving TTS models. With Kyutai's Pocket TTS, generating audio is just a pip install and a function call away.
@@ -41,16 +109,16 @@ Navigate to the [Kyutai website](https://kyutai.org/pocket-tts) to try it out di
 ## Trying it with the CLI
 
 ### The `generate` command
-You can use pocket-tts directly from the command line. We recommend using
+You can use pocket-tts-timestamped directly from the command line. We recommend using
 `uv` as it installs any dependencies on the fly in an isolated environment (uv installation instructions [here](https://docs.astral.sh/uv/getting-started/installation/#standalone-installer)).
-You can also use `pip install pocket-tts` to install it manually.
+You can also use `pip install pocket-tts-timestamped` to install it manually.
 On Linux, see [CPU-only installation](#cpu-only-installation) to avoid pulling in the CUDA build of PyTorch.
 
 This will generate a wav file `./tts_output.wav` saying the default text with the default voice, and display some speed statistics.
 ```bash
-uvx pocket-tts generate
+uvx --from pocket-tts-timestamped pocket-tts-timestamped generate
 # or if you installed it manually with pip:
-pocket-tts generate
+pocket-tts-timestamped generate
 ```
 Modify the voice with `--voice` and the text with `--text`. We provide a small catalog of voices.
 Choose a pretrained language model with `--language` when running `generate`, `export-voice`, or `serve` (default: `english`). Non-english languages have also biggers 24 layers variants that are higher quality but slower. You can select them by using for example `--language italian_24l`.
@@ -97,9 +165,9 @@ For trying multiple voices and prompts quickly, prefer using the `serve` command
 
 You can also run a local server to generate audio via HTTP requests.
 ```bash
-uvx pocket-tts serve
+uvx --from pocket-tts-timestamped pocket-tts-timestamped serve
 # or if you installed it manually with pip:
-pocket-tts serve
+pocket-tts-timestamped serve
 ```
 Navigate to `http://localhost:8000` to try the web interface, it's faster than the command line as the model is kept in memory between requests.
 
@@ -116,24 +184,26 @@ You can try out the Python library on Colab [here](https://colab.research.google
 
 Install the package with
 ```bash
-pip install pocket-tts
+pip install pocket-tts-timestamped
 # or
-uv add pocket-tts
+uv add pocket-tts-timestamped
 ```
 
 ### CPU-only installation
 
-On Linux, PyPI serves the CUDA build of PyTorch by default, so `pip install pocket-tts` also
+On Linux, PyPI serves the CUDA build of PyTorch by default, so
+`pip install pocket-tts-timestamped` also
 downloads the `nvidia-*` CUDA runtime wheels, even though pocket-tts runs on CPU. This adds
 several gigabytes to the install (with torch 2.13, roughly 3 GB instead of 200 MB). Installing
 from the PyTorch CPU index pulls the CPU build and no NVIDIA packages:
 ```bash
-pip install pocket-tts --extra-index-url https://download.pytorch.org/whl/cpu
+pip install pocket-tts-timestamped --extra-index-url https://download.pytorch.org/whl/cpu
 ```
 
 To run the CLI without installing, pass the same index to `uvx`:
 ```bash
-uvx --index https://download.pytorch.org/whl/cpu pocket-tts generate
+uvx --index https://download.pytorch.org/whl/cpu \
+  --from pocket-tts-timestamped pocket-tts-timestamped generate
 ```
 
 With `uv`, declare the index explicitly in your project:
@@ -151,7 +221,7 @@ This is not needed on macOS or Windows, where the default PyTorch wheels are alr
 
 You can use this package as a simple Python library to generate audio from text.
 ```python
-from pocket_tts import TTSModel
+from pocket_tts_timestamped import TTSModel
 import scipy.io.wavfile
 
 tts_model = TTSModel.load_model()
@@ -166,6 +236,21 @@ audio = tts_model.generate_audio(voice_state, "Hello world, this is a test.")
 scipy.io.wavfile.write("output.wav", tts_model.sample_rate, audio.numpy())
 ```
 
+### Word-level timestamps
+
+Word timestamps are available through the Python API. The non-streaming method returns the
+complete audio and finalized word intervals:
+
+```python
+result = tts_model.generate_audio_with_timestamps(voice_state, "Hello world!")
+for word in result.words:
+    print(word.word, word.start_time, word.end_time)
+```
+
+For real-time consumers, `generate_audio_with_timestamps_stream()` yields `AudioChunk`,
+`WordStart`, and `WordEnd` events. Timestamp methods raise `ValueError` for custom model
+configurations that do not define `timestamp_heads`.
+
 You can have multiple voice states around if
 you have multiple voices you want to use. `load_model()`
 and `get_state_for_audio_prompt()` are relatively slow operations,
@@ -173,7 +258,7 @@ so we recommend to keep the model and voice states in memory if you can.
 
 For faster voice loading, you can export voice states to safetensors files:
 ```python
-from pocket_tts import TTSModel, export_model_state
+from pocket_tts_timestamped import TTSModel, export_model_state
 
 model = TTSModel.load_model()
 
@@ -218,14 +303,16 @@ A few things to be aware of if you want to use the GPU:
   get a speedup by using a gpu since it's a small model") is what this section is correcting, based
   on the T4 measurements above); the `serve` command and the Docker image do not expose any device
   option and will always run on CPU.
-- `pip install pocket-tts` / `uv add pocket-tts` install whatever `torch` build is current on
+- `pip install pocket-tts-timestamped` / `uv add pocket-tts-timestamped` install whatever `torch`
+  build is current on
   PyPI, which may require a newer CUDA version than your driver supports. In that case
   `torch.cuda.is_available()` silently returns `False` (you'll only see a `UserWarning` about an
   outdated driver, not an error). If this happens, install a `torch` build matching your driver's
   CUDA version explicitly, e.g. `pip install torch --index-url https://download.pytorch.org/whl/cu121`.
 - `quantize=True` (int8 dynamic quantization) only works on CPU; calling it on a model moved to
   CUDA raises `NotImplementedError: Could not run 'quantized::linear_dynamic' ... 'CUDA' backend`.
-  Separately, the optional `torchao` backend (`pip install pocket-tts[quantize]`) declares
+  Separately, the optional `torchao` backend
+  (`pip install pocket-tts-timestamped[quantize]`) declares
   `torch>=2.11` — fine with a fresh install (torch 2.11+ is on PyPI as of this writing), but if
   you've pinned an older `torch` (e.g. to match an older GPU driver's CUDA build, per the point
   above), adding this extra can pull in a `torchao` that's incompatible with your pinned `torch`
@@ -273,7 +360,7 @@ We don't have official support for this yet, but you can try out one of these co
 
 To use a community model, just use the `--config` argument and point it to the url of the model's yaml file. For example:
 ```bash
-uvx pocket-tts generate --config https://raw.githubusercontent.com/kyutai-labs/pocket-tts/refs/heads/main/pocket_tts/config/english_2026-04.yaml
+uvx --from pocket-tts-timestamped pocket-tts-timestamped generate --config https://raw.githubusercontent.com/kyutai-labs/pocket-tts/refs/heads/main/pocket_tts/config/english_2026-04.yaml
 ```
 
 It also works with huggingface urls like `hf://kyutai/pocket-tts/config/english_2026-04.yaml` or local paths like `./english_2026-04.yaml`.
@@ -283,25 +370,23 @@ The pre-made voices listed above are embeddings precomputed with our released we
 We recommend inserting the commit hash somehow in the url to avoid breaking changes by the model authors. For example:
 
 ```bash
-uvx pocket-tts generate --config https://raw.githubusercontent.com/kyutai-labs/pocket-tts/891886a61a1ed45fd429a0a63bd96181e6cff637/pocket_tts/config/english_2026-04.yaml
+uvx --from pocket-tts-timestamped pocket-tts-timestamped generate --config https://raw.githubusercontent.com/kyutai-labs/pocket-tts/891886a61a1ed45fd429a0a63bd96181e6cff637/pocket_tts/config/english_2026-04.yaml
 ```
 or with `hf://...`
 ```bash
-uvx pocket-tts generate --config hf://user/repo/config_file.yaml@commit_hash
+uvx --from pocket-tts-timestamped pocket-tts-timestamped generate --config hf://user/repo/config_file.yaml@commit_hash
 ```
 
 ### List of community-trained models
 
 - [pocket-tts-czech](https://huggingface.co/vvolhejn/pocket-tts-czech) by @vvolhejn (trained internally at Kyutai):
 ```bash
-uvx pocket-tts generate \
-  --config hf://vvolhejn/pocket-tts-czech/czech.yaml@7b7760dd0fe994a0800f2fdbc837dc4b8f219d1c \
-  --text "Dnešek je velmi dobrý den"
+uvx --from pocket-tts-timestamped pocket-tts-timestamped generate --config hf://vvolhejn/pocket-tts-czech/czech.yaml@7b7760dd0fe994a0800f2fdbc837dc4b8f219d1c --text "Dnešek je velmi dobrý den"
 ```
 
 - [Pocket TTS Hindi](https://huggingface.co/saryps-labs/pocket-tts-hindi) by [Saryps Labs](https://huggingface.co/saryps-labs) (community research release):
 ```bash
-uvx pocket-tts generate \
+uvx --from pocket-tts-timestamped pocket-tts-timestamped generate \
   --config hf://saryps-labs/pocket-tts-hindi/config.yaml@dbaa326069d20bfbdaeb625613736773741a24ea \
   --text "आज का दिन बहुत अच्छा है"
 ```

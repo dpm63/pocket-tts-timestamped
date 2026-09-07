@@ -26,7 +26,7 @@ uv run training/train.py training/configs/scratch.yaml
 Generate samples:
 
 ```bash
-uv run pocket-tts generate --config pocket_tts/config/english.yaml \
+uv run pocket-tts-timestamped generate --config pocket_tts_timestamped/config/english.yaml \
     --checkpoint runs/scratch/checkpoint_00050000.pt \
     --voice some_speaker.wav --text "Hello there."
 ```
@@ -266,10 +266,10 @@ When training on a new language, not all of these metrics transfer directly:
 
 ## Generate
 
-To generate audio, you can use the usual `pocket-tts generate` command and pass in the checkpoint you obtained:
+To generate audio, you can use the usual `pocket-tts-timestamped generate` command and pass in the checkpoint you obtained:
 
 ```bash
-uv run pocket-tts generate --config my_config.yaml \
+uv run pocket-tts-timestamped generate --config my_config.yaml \
     --checkpoint runs/finetune/checkpoint_00124000.pt \
     --voice voice.wav --text "The quick brown fox jumps over the lazy dog."
 ```
@@ -338,7 +338,7 @@ To distribute your trained model, the easiest way is to upload it to [Hugging Fa
 Once those have been uploaded, try using your model with the official Pocket TTS wheel:
 
 ```bash
-uvx pocket-tts generate --config hf://<your_hf_repo>/<your_yaml_path> \
+uvx pocket-tts-timestamped generate --config hf://<your_hf_repo>/<your_yaml_path> \
     --voice <your_voice_prompt.wav> --text "Hello there."
 ```
 

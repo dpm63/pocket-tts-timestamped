@@ -6,8 +6,8 @@ from pathlib import Path
 import pytest
 from typer.testing import CliRunner
 
-from pocket_tts.data.audio import audio_read
-from pocket_tts.main import cli_app
+from pocket_tts_timestamped.data.audio import audio_read
+from pocket_tts_timestamped.main import cli_app
 
 other_voice = "https://huggingface.co/kyutai/tts-voices/resolve/main/expresso/ex01-ex02_default_001_channel1_168s.wav"
 

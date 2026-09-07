@@ -1,9 +1,9 @@
 from pathlib import Path
 
-from pocket_tts import TTSModel, export_model_state
-from pocket_tts.utils.utils import _ORIGINS_OF_PREDEFINED_VOICES
+from pocket_tts_timestamped import TTSModel, export_model_state
+from pocket_tts_timestamped.utils.utils import _ORIGINS_OF_PREDEFINED_VOICES
 
-languages = [x.stem for x in Path("./pocket_tts/config").glob("*.yaml")]
+languages = [x.stem for x in Path("./pocket_tts_timestamped/config").glob("*.yaml")]
 
 
 for language in languages:

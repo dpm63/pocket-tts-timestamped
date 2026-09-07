@@ -62,7 +62,7 @@ class TrainArgs:
     flow: FlowArgs = field(default_factory=FlowArgs)
     optim: OptimArgs = field(default_factory=OptimArgs)
 
-    # A pocket-tts model config (e.g. pocket_tts/config/english.yaml or a local
+    # A pocket-tts model config (e.g. pocket_tts_timestamped/config/english.yaml or a local
     # variant). Defines the FlowLM/Mimi architecture, the tokenizer, and the
     # weights used for Mimi (and for the FlowLM too when start_from_pretrained).
     model_config: str = ""

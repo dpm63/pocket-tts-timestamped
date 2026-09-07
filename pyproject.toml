@@ -1,9 +1,11 @@
 [project]
-name = "pocket-tts"
+name = "pocket-tts-timestamped"
 requires-python = ">= 3.10,<3.15"
-description = "Kyutai's pocket-sized text-to-speech!"
-version = "3.1.0"
+description = "Pocket TTS with streaming word-level timestamps"
+version = "1.0.0"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 dependencies = [
     "numpy>=2",
     # I tried 2.4.0 but the generated audio is wrong, so 2.5+ is needed.
@@ -73,10 +75,17 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["pocket_tts"]
+packages = ["pocket_tts_timestamped"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/pocket_tts_timestamped", "/LICENSE", "/README.md", "/pyproject.toml"]
 
 [project.scripts]
-pocket-tts = "pocket_tts.main:cli_app"
+pocket-tts-timestamped = "pocket_tts_timestamped.main:cli_app"
+
+[project.urls]
+Repository = "https://github.com/dpm63/pocket-tts-timestamped"
+Upstream = "https://github.com/kyutai-labs/pocket-tts"
 
 [tool.uv]
 # System python distribution can have header files missing, so we use only the python
@@ -95,7 +104,7 @@ missing-type-argument = "error"
 
 [[tool.ty.overrides]]
 # The torch.ao fallback is deliberately on a deprecated API (see the module docstring).
-include = ["pocket_tts/quantization.py"]
+include = ["pocket_tts_timestamped/quantization.py"]
 
 [tool.ty.overrides.rules]
 deprecated = "ignore"

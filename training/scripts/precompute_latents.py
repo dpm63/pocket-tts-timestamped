@@ -14,9 +14,9 @@ import torch
 import typer
 from tqdm import tqdm
 
-from pocket_tts.models.mimi import MimiModel
-from pocket_tts.utils.config import Config
-from pocket_tts.utils.utils import download_if_necessary
+from pocket_tts_timestamped.models.mimi import MimiModel
+from pocket_tts_timestamped.utils.config import Config
+from pocket_tts_timestamped.utils.utils import download_if_necessary
 from training.args import load_args
 from training.dataloader import Entry, _load_window
 from training.modules.builders import build_mimi, load_model_config

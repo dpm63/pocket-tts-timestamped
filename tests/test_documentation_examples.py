@@ -7,7 +7,7 @@ import pytest
 def test_readme_example():
     import scipy.io.wavfile
 
-    from pocket_tts import TTSModel
+    from pocket_tts_timestamped import TTSModel
 
     tts_model = TTSModel.load_model()
     voice_state = tts_model.get_state_for_audio_prompt("cosette")
@@ -19,7 +19,7 @@ def test_readme_example():
 def test_quick_start():
     import scipy.io.wavfile
 
-    from pocket_tts import TTSModel
+    from pocket_tts_timestamped import TTSModel
 
     # Load the model
     tts_model = TTSModel.load_model()
@@ -35,7 +35,7 @@ def test_quick_start():
 
 
 def test_load_model():
-    from pocket_tts import TTSModel
+    from pocket_tts_timestamped import TTSModel
 
     # Load with default settings
     model = TTSModel.load_model()
@@ -47,14 +47,14 @@ def test_load_model():
 
 
 def test_device():
-    from pocket_tts import TTSModel
+    from pocket_tts_timestamped import TTSModel
 
     model = TTSModel.load_model()
     print(f"Model running on: {model.device}")
 
 
 def test_sample_rate():
-    from pocket_tts import TTSModel
+    from pocket_tts_timestamped import TTSModel
 
     model = TTSModel.load_model()
     print(f"Sample rate: {model.sample_rate} Hz")
@@ -72,7 +72,7 @@ def make_my_voice_file():
 
 @pytest.mark.usefixtures("make_my_voice_file")
 def test_get_state_for_audio_prompt():
-    from pocket_tts import TTSModel
+    from pocket_tts_timestamped import TTSModel
 
     model = TTSModel.load_model()
     # hack to make it work without auth
@@ -94,7 +94,7 @@ def test_get_state_for_audio_prompt():
 
 
 def test_generate_audio():
-    from pocket_tts import TTSModel
+    from pocket_tts_timestamped import TTSModel
 
     model = TTSModel.load_model()
 
@@ -108,7 +108,7 @@ def test_generate_audio():
 
 
 def test_generate_audio_stream():
-    from pocket_tts import TTSModel
+    from pocket_tts_timestamped import TTSModel
 
     model = TTSModel.load_model()
 
@@ -121,7 +121,7 @@ def test_generate_audio_stream():
 
 
 def test_voice_management():
-    from pocket_tts import TTSModel
+    from pocket_tts_timestamped import TTSModel
 
     model = TTSModel.load_model()
     # Preload multiple voices
@@ -139,7 +139,7 @@ def test_batch_processing():
     import scipy.io.wavfile
     import torch
 
-    from pocket_tts import TTSModel
+    from pocket_tts_timestamped import TTSModel
 
     model = TTSModel.load_model()
 

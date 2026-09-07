@@ -7,14 +7,14 @@ Pocket TTS supports dynamic int8 quantization to reduce runtime memory usage and
 ### CLI
 
 ```bash
-pocket-tts generate --quantize --text "Hello world"
-pocket-tts serve --quantize
+pocket-tts-timestamped generate --quantize --text "Hello world"
+pocket-tts-timestamped serve --quantize
 ```
 
 ### Python API
 
 ```python
-from pocket_tts import TTSModel
+from pocket_tts_timestamped import TTSModel
 
 model = TTSModel.load_model(quantize=True)
 voice_state = model.get_state_for_audio_prompt("alba")
@@ -28,7 +28,7 @@ Quantization works out of the box on any supported PyTorch version (2.5+) using 
 For optimized performance, install `torchao` (requires torch 2.10+):
 
 ```bash
-pip install 'pocket-tts[quantize]'
+pip install 'pocket-tts-timestamped[quantize]'
 ```
 
 The quantization module automatically selects the best available backend:

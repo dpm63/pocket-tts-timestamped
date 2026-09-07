@@ -1,0 +1,103 @@
+name: Sync upstream
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: sync-upstream-main
+  cancel-in-progress: false
+
+jobs:
+  open-sync-pr:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      SYNC_BRANCH: automation/upstream-sync
+      UPSTREAM_URL: https://github.com/kyutai-labs/pocket-tts.git
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fetch upstream main
+        run: |
+          git remote add upstream "$UPSTREAM_URL"
+          git fetch --no-tags upstream main
+          git fetch --no-tags origin main
+
+      - name: Check for an existing sync
+        id: sync-state
+        run: |
+          if git merge-base --is-ancestor upstream/main origin/main; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "Upstream main is already contained in this fork."
+            exit 0
+          fi
+
+          existing_pr=$(gh pr list \
+            --repo "$GITHUB_REPOSITORY" \
+            --state open \
+            --base main \
+            --head "$SYNC_BRANCH" \
+            --json number \
+            --jq '.[0].number // empty')
+          if [ -n "$existing_pr" ]; then
+            echo "needed=false" >> "$GITHUB_OUTPUT"
+            echo "Sync PR #$existing_pr is already open; leaving its branch untouched."
+            exit 0
+          fi
+
+          echo "needed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Merge upstream into the fork sync branch
+        id: merge
+        if: steps.sync-state.outputs.needed == 'true'
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git switch --force-create "$SYNC_BRANCH" origin/main
+
+          if git merge --no-ff --no-edit upstream/main; then
+            python scripts/normalize_upstream_namespace.py
+            if ! git diff --quiet; then
+              git add --all
+              git commit -m "Normalize upstream changes for the timestamped namespace"
+            fi
+            git push --force origin "$SYNC_BRANCH"
+            echo "mode=integrated" >> "$GITHUB_OUTPUT"
+          else
+            git merge --abort
+            git push --force origin upstream/main:"refs/heads/$SYNC_BRANCH"
+            echo "mode=conflicted" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Open upstream sync pull request
+        if: steps.sync-state.outputs.needed == 'true'
+        env:
+          SYNC_MODE: ${{ steps.merge.outputs.mode }}
+        run: |
+          upstream_sha=$(git rev-parse upstream/main)
+          if [ "$SYNC_MODE" = "integrated" ]; then
+            body="Upstream kyutai-labs/pocket-tts at ${upstream_sha} has been merged into this branch. The timestamped package namespace was normalized automatically.
+
+          Review the changes and merge this PR with a **merge commit**. Do not squash or rebase: preserving upstream ancestry prevents already-synchronized commits from appearing in future sync PRs."
+          else
+            body="Upstream kyutai-labs/pocket-tts at ${upstream_sha} could not be merged automatically, so this branch points at the exact upstream commit.
+
+          Resolve the conflicts locally, run scripts/normalize_upstream_namespace.py, and update this branch. Merge the PR with a **merge commit**; do not squash or rebase, so upstream ancestry is preserved."
+          fi
+
+          gh pr create \
+            --repo "$GITHUB_REPOSITORY" \
+            --base main \
+            --head "$SYNC_BRANCH" \
+            --title "Sync upstream main" \
+            --body "${body}
+
+          Created by the weekly upstream synchronization workflow."

@@ -1,7 +1,7 @@
 # Finetune a released model on more data in the SAME language -- new voices, a
 # new domain. The tokenizer is the released one, so the text embedding carries
 # over; for a different language use finetune_language.yaml instead.
-model_config: pocket_tts/config/english_2026-04_24l.yaml
+model_config: pocket_tts_timestamped/config/english_2026-04_24l.yaml
 start_from_pretrained: true
 
 data:

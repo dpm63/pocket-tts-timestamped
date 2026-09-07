@@ -2,7 +2,7 @@
 # WER by 10k steps where a scratch run was still at 46%, and both settled around
 # 10-12%. Keep lr at 2e-4: the text embedding starts random, so the backbone has
 # to move with it.
-model_config: pocket_tts/config/english_2026-04_24l.yaml
+model_config: pocket_tts_timestamped/config/english_2026-04_24l.yaml
 model_overrides:
   # The sentencepiece model you fitted on your transcripts. n_bins already
   # matches train_tokenizer.py's default vocab size, so it needs no override.

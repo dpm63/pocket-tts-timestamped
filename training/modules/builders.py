@@ -12,12 +12,12 @@ import torch
 import yaml
 from torch import nn
 
-from pocket_tts.models.flow_lm import FlowLMModel
-from pocket_tts.models.mimi import MimiModel, build_mimi
-from pocket_tts.models.tts_model import TTSModel
-from pocket_tts.modules.mlp import SimpleMLPAdaLN
-from pocket_tts.utils.config import Config, load_config
-from pocket_tts.utils.utils import download_if_necessary
+from pocket_tts_timestamped.models.flow_lm import FlowLMModel
+from pocket_tts_timestamped.models.mimi import MimiModel, build_mimi
+from pocket_tts_timestamped.models.tts_model import TTSModel
+from pocket_tts_timestamped.modules.mlp import SimpleMLPAdaLN
+from pocket_tts_timestamped.utils.config import Config, load_config
+from pocket_tts_timestamped.utils.utils import download_if_necessary
 
 from ..args import TrainArgs
 from ..scripts.shrink_checkpoint import shrink

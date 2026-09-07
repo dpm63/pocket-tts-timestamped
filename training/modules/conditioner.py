@@ -8,7 +8,7 @@ placement) with no learnable logic of its own.
 import torch
 import torch.nn.functional as F
 
-from pocket_tts.models.flow_lm import FlowLMModel
+from pocket_tts_timestamped.models.flow_lm import FlowLMModel
 
 from ..args import TrainArgs
 

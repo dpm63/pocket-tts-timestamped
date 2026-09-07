@@ -12,9 +12,9 @@ from typing import Any
 import soundfile
 import torch
 
-from pocket_tts.models.flow_lm import FlowLMModel
-from pocket_tts.models.mimi import MimiModel
-from pocket_tts.modules.stateful_module import init_states
+from pocket_tts_timestamped.models.flow_lm import FlowLMModel
+from pocket_tts_timestamped.models.mimi import MimiModel
+from pocket_tts_timestamped.modules.stateful_module import init_states
 from training.args import TrainArgs
 from training.modules.builders import load_model_config
 from training.modules.model import TrainableTTS

@@ -1461,8 +1461,8 @@ wheels = [
 ]
 
 [[package]]
-name = "pocket-tts"
-version = "3.1.0"
+name = "pocket-tts-timestamped"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "einops" },

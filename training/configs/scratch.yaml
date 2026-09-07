@@ -6,7 +6,7 @@
 # Any released language config works here -- it supplies the tokenizer, the
 # Mimi weights and the architecture. The override makes it the 24-layer
 # teacher; drop it to train a 6-layer model directly (lower quality).
-model_config: pocket_tts/config/english.yaml
+model_config: pocket_tts_timestamped/config/english.yaml
 model_overrides:
   flow_lm.transformer.num_layers: 24
 start_from_pretrained: false

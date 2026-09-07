@@ -1,21 +1,96 @@
-name: Upload Python Package
+name: Publish Python package
 
 on:
+  workflow_dispatch:
   release:
-    types: [created]
+    types: [published]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build:
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      startsWith(github.event.release.tag_name, 'timestamped-v')
     runs-on: ubuntu-latest
-    environment:
-      name: push_to_pypi
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+
+      - name: Verify release identity
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          python - <<'PY'
+          import os
+          import tomllib
+          from pathlib import Path
+
+          project = tomllib.loads(Path("pyproject.toml").read_text())["project"]
+          if project["name"] != "pocket-tts-timestamped":
+              raise SystemExit(f"Unexpected distribution name: {project['name']}")
+          expected_tag = f"timestamped-v{project['version']}"
+          if os.environ["EVENT_NAME"] == "release" and os.environ["RELEASE_TAG"] != expected_tag:
+              raise SystemExit(
+                  f"Release tag {os.environ['RELEASE_TAG']!r} must be {expected_tag!r}"
+              )
+          print(f"Building {project['name']} {project['version']}")
+          PY
+
+      - name: Build distributions
+        run: uv build
+
+      - name: Validate distributions
+        run: uvx twine check dist/*
+
+      - name: Upload distributions
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-package-${{ github.run_id }}
+          path: dist/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish-testpypi:
+    if: github.event_name == 'workflow_dispatch'
+    needs: build
+    runs-on: ubuntu-latest
+    environment: testpypi
     permissions:
       id-token: write
     steps:
-    - uses: actions/checkout@v2
-    - name: Install uv
-      uses: astral-sh/setup-uv@v7
-    - name: Build wheels
-      run: uv build
-    - name: Publish package distributions to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-package-${{ github.run_id }}
+          path: dist/
+
+      - name: Publish to TestPyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          repository-url: https://test.pypi.org/legacy/
+
+  publish-pypi:
+    if: >-
+      github.event_name == 'release' &&
+      startsWith(github.event.release.tag_name, 'timestamped-v')
+    needs: build
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      id-token: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: python-package-${{ github.run_id }}
+          path: dist/
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1

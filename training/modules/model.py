@@ -16,8 +16,8 @@ import torch
 import torch.nn.functional as F
 from torch import nn
 
-from pocket_tts.models.flow_lm import FlowLMModel
-from pocket_tts.modules.stateful_module import ModelState, increment_steps, init_states
+from pocket_tts_timestamped.models.flow_lm import FlowLMModel
+from pocket_tts_timestamped.modules.stateful_module import ModelState, increment_steps, init_states
 
 from ..args import TrainArgs
 from .conditioner import build_sequences_with_conditions

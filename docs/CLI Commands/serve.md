@@ -5,9 +5,9 @@ The `serve` command starts a FastAPI web server that provides both a web interfa
 ## Basic Usage
 
 ```bash
-uvx pocket-tts serve
+uvx --from pocket-tts-timestamped pocket-tts-timestamped serve
 # or if installed manually:
-pocket-tts serve
+pocket-tts-timestamped serve
 ```
 
 This starts a server on `http://localhost:8000` with the default voice model.
@@ -27,16 +27,16 @@ This starts a server on `http://localhost:8000` with the default voice model.
 
 ```bash
 # Start with default settings
-pocket-tts serve
+pocket-tts-timestamped serve
 
 # Custom host and port
-pocket-tts serve --host "localhost" --port 8080
+pocket-tts-timestamped serve --host "localhost" --port 8080
 ```
 
 ### Custom Language
 To select the default language model, pass `--language`:
 ```bash
-pocket-tts serve --language french_24l
+pocket-tts-timestamped serve --language french_24l
 ```
 
 ### Custom Default Voice
@@ -46,17 +46,17 @@ Use `--default-voice` to serve your own instead:
 
 ```bash
 # A local audio file
-pocket-tts serve --default-voice "./my_voice.wav"
+pocket-tts-timestamped serve --default-voice "./my_voice.wav"
 
 # A voice exported with `export-voice`, which loads much faster than an audio file
-pocket-tts serve --default-voice "./my_voice.safetensors"
+pocket-tts-timestamped serve --default-voice "./my_voice.safetensors"
 
 # A voice hosted on the web or on the Hugging Face Hub
-pocket-tts serve --default-voice "https://example.com/my_voice.wav"
-pocket-tts serve --default-voice "hf://kyutai/tts-voices/alba-mackenna/casual.wav"
+pocket-tts-timestamped serve --default-voice "https://example.com/my_voice.wav"
+pocket-tts-timestamped serve --default-voice "hf://kyutai/tts-voices/alba-mackenna/casual.wav"
 
 # Another built-in voice
-pocket-tts serve --default-voice "marius"
+pocket-tts-timestamped serve --default-voice "marius"
 ```
 
 Requests are free to ask for another voice: `--default-voice` only changes what is used when the
@@ -67,13 +67,13 @@ field is left empty).
 
 If you'd like to override the paths from which the models are loaded, you can provide a custom YAML configuration.
 
-Copy one of the files in `pocket_tts/config` (for example `pocket_tts/config/english.yaml`) and change `weights_path`, `weights_path_without_voice_cloning:`, and `tokenizer_path:` to the paths of the models you want to load.
+Copy one of the files in `pocket_tts_timestamped/config` (for example `pocket_tts_timestamped/config/english.yaml`) and change `weights_path`, `weights_path_without_voice_cloning:`, and `tokenizer_path:` to the paths of the models you want to load.
 
 Then, use the --config option to point to your newly created config.
 
 ```bash
 # Use a different config
-pocket-tts serve --config "C://pocket-tts/my_config.yaml"
+pocket-tts-timestamped serve --config "C://pocket-tts/my_config.yaml"
 ```
 
 ## Web Interface

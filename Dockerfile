@@ -5,8 +5,8 @@ COPY ./pyproject.toml .
 COPY ./uv.lock .
 COPY ./README.md .
 COPY ./.python-version .
-COPY ./pocket_tts ./pocket_tts
+COPY ./pocket_tts_timestamped ./pocket_tts_timestamped
 
-RUN uv run pocket-tts --help
+RUN uv run pocket-tts-timestamped --help
 
-ENTRYPOINT ["uv", "run", "pocket-tts"]
+ENTRYPOINT ["uv", "run", "pocket-tts-timestamped"]

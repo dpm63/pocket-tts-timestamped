@@ -8,8 +8,8 @@ import torch
 from torch import nn
 from torch.autograd.function import BackwardCFunction, FunctionCtx
 
-from pocket_tts.modules.mlp import ResBlock, SimpleMLPAdaLN, TimestepEmbedder
-from pocket_tts.modules.stateful_module import ModelState, StatefulModule
+from pocket_tts_timestamped.modules.mlp import ResBlock, SimpleMLPAdaLN, TimestepEmbedder
+from pocket_tts_timestamped.modules.stateful_module import ModelState, StatefulModule
 
 
 def _as_linear(module: nn.Module) -> nn.Linear:

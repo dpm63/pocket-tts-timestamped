@@ -30,8 +30,8 @@ import numpy.typing as npt
 import scipy.io.wavfile
 import torch
 
-from pocket_tts import TTSModel
-from pocket_tts.quantization import apply_dynamic_int8
+from pocket_tts_timestamped import TTSModel
+from pocket_tts_timestamped.quantization import apply_dynamic_int8
 
 # Quantization configs for benchmarking. Each maps to a set of layer group keys.
 CONFIGS = {

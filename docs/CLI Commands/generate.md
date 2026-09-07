@@ -5,9 +5,9 @@ The `generate` command allows you to generate speech from text directly from the
 ## Basic Usage
 
 ```bash
-uvx pocket-tts generate
+uvx --from pocket-tts-timestamped pocket-tts-timestamped generate
 # or if installed manually:
-pocket-tts generate
+pocket-tts-timestamped generate
 ```
 
 This will generate a WAV file `./tts_output.wav` with the default text and voice.
@@ -42,52 +42,52 @@ This will generate a WAV file `./tts_output.wav` with the default text and voice
 
 ```bash
 # Generate with default settings
-pocket-tts generate
+pocket-tts-timestamped generate
 
 # Custom text
-pocket-tts generate --text "Hello, this is a custom message."
+pocket-tts-timestamped generate --text "Hello, this is a custom message."
 
 # Custom output path
-pocket-tts generate --output-path "./my_audio.wav"
+pocket-tts-timestamped generate --output-path "./my_audio.wav"
 ```
 
 ### Voice Selection
 
 ```bash
 # Use different voice from HuggingFace
-pocket-tts generate --voice "hf://kyutai/tts-voices/jessica-jian/casual.wav"
+pocket-tts-timestamped generate --voice "hf://kyutai/tts-voices/jessica-jian/casual.wav"
 
 # Use local voice file
-pocket-tts generate --voice "./my_voice.wav"
+pocket-tts-timestamped generate --voice "./my_voice.wav"
 
-# Use a safetensors file (such as one created using `pocket-tts export-voice`)
-pocket-tts generate --voice "./my_voice.safetensors"
+# Use a safetensors file (such as one created using `pocket-tts-timestamped export-voice`)
+pocket-tts-timestamped generate --voice "./my_voice.safetensors"
 ```
 
 ### Quality Tuning
 
 ```bash
 # Higher quality (more steps)
-pocket-tts generate --sampler-decode-steps 5 --temperature 0.5
+pocket-tts-timestamped generate --sampler-decode-steps 5 --temperature 0.5
 
 # More expressive (higher temperature)
-pocket-tts generate --temperature 1.0
+pocket-tts-timestamped generate --temperature 1.0
 
 # Adjust EOS threshold, smaller means finishing earlier.
-pocket-tts generate --eos-threshold -3.0
+pocket-tts-timestamped generate --eos-threshold -3.0
 ```
 
 ### Custom Model Config
 
 If you'd like to override the paths from which the models are loaded, you can provide a custom YAML configuration.
 
-Copy one of the files in `pocket_tts/config` (for example `pocket_tts/config/english.yaml`) and change `weights_path`, `weights_path_without_voice_cloning`, and `tokenizer_path` to the paths of the models you want to load.
+Copy one of the files in `pocket_tts_timestamped/config` (for example `pocket_tts_timestamped/config/english.yaml`) and change `weights_path`, `weights_path_without_voice_cloning`, and `tokenizer_path` to the paths of the models you want to load.
 
 Then, use the --config option to point to your newly created config.
 
 ```bash
 # Use a different config
-pocket-tts generate --config "C://pocket-tts/my_config.yaml"
+pocket-tts-timestamped generate --config "C://pocket-tts/my_config.yaml"
 ```
 
 ## Output Format
