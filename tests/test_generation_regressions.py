@@ -21,10 +21,12 @@ def test_generate_audio_stream_uses_prepared_chunk_text(monkeypatch: pytest.Monk
         pad_with_spaces_for_short_inputs: bool,
         remove_semicolons: bool,
         append_terminal_punctuation: bool,
+        capitalize_first_letter: bool,
     ) -> list[str]:
         assert text_to_generate == "hi"
         assert pad_with_spaces_for_short_inputs is True
         assert append_terminal_punctuation is True
+        assert capitalize_first_letter is True
         return ["hi"]
 
     def fake_generate_audio_stream_short_text(**kwargs: object) -> Iterator[torch.Tensor]:
@@ -42,6 +44,7 @@ def test_generate_audio_stream_uses_prepared_chunk_text(monkeypatch: pytest.Monk
             pad_with_spaces_for_short_inputs=True,
             remove_semicolons=False,
             append_terminal_punctuation=True,
+            capitalize_first_letter=True,
             _generate_audio_stream_short_text=fake_generate_audio_stream_short_text,
         ),
     )
@@ -86,6 +89,24 @@ def test_generate_reports_autoregressive_errors_before_decoder_done():
     assert kind == "error"
     assert value is error
     assert latents_queue.get(timeout=1) is None
+
+
+def test_ordinary_decoder_rejects_timestamp_scores_in_drained_batch(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    monkeypatch.setattr(tts_model_module, "init_states", lambda *args, **kwargs: {})
+    model = cast(TTSModel, SimpleNamespace(mimi=object(), max_decoder_frames_per_call=0))
+    latents_queue = queue.Queue()
+    result_queue = queue.Queue()
+    latents_queue.put(torch.zeros((1, 1, 1)))
+    latents_queue.put((torch.zeros((1, 1, 1)), torch.ones((1, 1))))
+
+    TTSModel._decode_audio_worker(model, latents_queue, result_queue, 1, 1)
+
+    kind, value = result_queue.get(timeout=1)
+    assert kind == "error"
+    assert isinstance(value, TypeError)
+    assert str(value) == "Ordinary audio decoding received timestamp attention scores"
 
 
 @pytest.mark.parametrize(
