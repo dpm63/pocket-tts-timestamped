@@ -379,24 +379,63 @@ uvx --from pocket-tts-timestamped pocket-tts-timestamped generate --config hf://
 
 ### List of community-trained models
 
-- [pocket-tts-czech](https://huggingface.co/vvolhejn/pocket-tts-czech) by @vvolhejn (trained internally at Kyutai):
+<details>
+<summary><a href="https://huggingface.co/vvolhejn/pocket-tts-czech">Pocket TTS Czech</a> by @vvolhejn (trained internally at Kyutai)</summary>
+
 ```bash
 uvx --from pocket-tts-timestamped pocket-tts-timestamped generate --config hf://vvolhejn/pocket-tts-czech/czech.yaml@7b7760dd0fe994a0800f2fdbc837dc4b8f219d1c --text "Dnešek je velmi dobrý den"
 ```
+</details>
 
-- [Pocket TTS Hindi](https://huggingface.co/saryps-labs/pocket-tts-hindi) by [Saryps Labs](https://huggingface.co/saryps-labs) (community research release):
+<details>
+<summary><a href="https://huggingface.co/saryps-labs/pocket-tts-hindi">Pocket TTS Hindi</a> by <a href="https://huggingface.co/saryps-labs">Saryps Labs</a> (community research release)</summary>
+
 ```bash
 uvx --from pocket-tts-timestamped pocket-tts-timestamped generate \
   --config hf://saryps-labs/pocket-tts-hindi/config.yaml@dbaa326069d20bfbdaeb625613736773741a24ea \
   --text "आज का दिन बहुत अच्छा है"
 ```
+</details>
 
-- [Pocket TTS Korean 300M](https://huggingface.co/seastar105/pocket-tts-korean-300m) by [@seastar105](https://huggingface.co/seastar105) (community research release):
+<details>
+<summary><a href="https://huggingface.co/seastar105/pocket-tts-korean-300m">Pocket TTS Korean 300M</a> by <a href="https://huggingface.co/seastar105">@seastar105</a> (community research release)</summary>
+
 ```bash
 uvx pocket-tts generate \
   --config hf://seastar105/pocket-tts-korean-300m/korean.yaml@df328c817a02866f20a6f74e5183e0a1fc6f6435 \
   --text "안녕하세요. 한국어 음성 합성 모델입니다."
 ```
+</details>
+
+<details>
+<summary><a href="https://huggingface.co/mehdi-hf/pocket-tts-farsi">Pocket TTS Persian (Farsi)</a> by @mallahyari (community research release)</summary>
+
+```bash
+uvx --with soundfile pocket-tts generate --config hf://mehdi-hf/pocket-tts-farsi/farsi.yaml@3c59d06b3177b21c5cd0df9e9e3e899f4d361c1c \
+    --voice hf://mehdi-hf/pocket-tts-farsi/example_voice.wav --text "سلام، حال شما چطور است؟"
+```
+</details>
+
+<details>
+<summary><a href="https://huggingface.co/anak10thn/pocket-tts-indonesian">Pocket TTS Indonesian</a> by <a href="https://huggingface.co/anak10thn">@anak10thn</a> (community research release), 6 layers</summary>
+
+```bash
+uvx pocket-tts generate \
+  --config hf://anak10thn/pocket-tts-indonesian/indonesian_6l.yaml@6196fe14c6c2108332c16d33c864c8901c044aaa \
+  --text "Selamat pagi. Ini model sintesis suara bahasa Indonesia."
+```
+</details>
+
+<details>
+<summary><a href="https://huggingface.co/cbentes/pocket-tts-estonian">Pocket TTS Estonian</a> by @cbentes (community research release)</summary>
+
+```bash
+uvx pocket-tts generate \
+  --config hf://cbentes/pocket-tts-estonian/estonian.yaml@8934022f1befb3dc568351e3b88e48a9edb94d7d \
+  --voice hf://cbentes/pocket-tts-estonian/voices/et_f_reporter.wav@8934022f1befb3dc568351e3b88e48a9edb94d7d \
+  --text "Tere! Mina olen eesti keele kõnesüntesaator ja töötan tavalises arvutis kiiremini kui reaalajas."
+```
+</details>
 
 Want your model here? Head to the [training Readme](https://github.com/kyutai-labs/pocket-tts/blob/main/training/README.md) to get started!
 

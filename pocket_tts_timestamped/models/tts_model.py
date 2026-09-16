@@ -116,9 +116,12 @@ class TTSModel(nn.Module):
         model_recommended_frames_after_eos: int | None = None,
         remove_semicolons: bool = False,
         append_terminal_punctuation: bool = True,
+        capitalize_first_letter: bool = True,
     ):
         super().__init__()
         self.flow_lm = flow_lm
+        # 0 = decode every queued frame in one call; 1 = one frame per call
+        self.max_decoder_frames_per_call = 0
         self.temp = temp
         self.sampler_decode_steps = sampler_decode_steps
         self.noise_clamp = noise_clamp
@@ -130,6 +133,7 @@ class TTSModel(nn.Module):
         self.model_recommended_frames_after_eos = model_recommended_frames_after_eos
         self.remove_semicolons = remove_semicolons
         self.append_terminal_punctuation = append_terminal_punctuation
+        self.capitalize_first_letter = capitalize_first_letter
 
     @property
     def device(self) -> torch.device:
@@ -166,6 +170,7 @@ class TTSModel(nn.Module):
             model_recommended_frames_after_eos=config.model_recommended_frames_after_eos,
             remove_semicolons=config.remove_semicolons,
             append_terminal_punctuation=config.append_terminal_punctuation,
+            capitalize_first_letter=config.capitalize_first_letter,
         )
         return tts_model
 
@@ -531,25 +536,46 @@ class TTSModel(nn.Module):
                 latent = latents_queue.get()
                 if latent is None:
                     break
-                if not isinstance(latent, torch.Tensor):
-                    raise TypeError("Ordinary audio decoding received timestamp attention scores")
-                mimi_decoding_input = latent * self.flow_lm.emb_std + self.flow_lm.emb_mean
+                # Decode every latent frame the generator has queued in one call. The first frame
+                # never waits. max_decoder_frames_per_call=1 is frame-by-frame decoding.
+                latents = [latent]
+                finished = False
+                while not finished and (
+                    self.max_decoder_frames_per_call <= 0
+                    or len(latents) < self.max_decoder_frames_per_call
+                ):
+                    try:
+                        nxt = latents_queue.get_nowait()
+                    except queue.Empty:
+                        break
+                    if nxt is None:
+                        finished = True
+                    else:
+                        latents.append(nxt)
+                mimi_decoding_input = (
+                    torch.cat(latents, dim=1) * self.flow_lm.emb_std + self.flow_lm.emb_mean
+                )
 
                 t = time.monotonic()
                 audio_frame = self.mimi.decode_from_latent(mimi_decoding_input, mimi_state)
-                increment_steps(self.mimi, mimi_state, increment=mimi_steps_per_latent)
+                increment_steps(
+                    self.mimi, mimi_state, increment=mimi_steps_per_latent * len(latents)
+                )
                 audio_frame_duration = audio_frame.shape[2] / self.config.mimi.sample_rate
-                # We could log the timings here.
                 logger.debug(
-                    " " * 30 + "Decoded %d ms of audio with mimi in %d ms",
+                    " " * 30 + "Decoded %d ms of audio (%d frames) with mimi in %d ms",
                     int(audio_frame_duration * 1000),
+                    len(latents),
                     int((time.monotonic() - t) * 1000),
                 )
                 audio_chunks.append(audio_frame)
 
                 result_queue.put(("chunk", audio_frame))
 
-                latents_queue.task_done()
+                for _ in latents:
+                    latents_queue.task_done()
+                if finished:
+                    break
 
             # Signal completion
             result_queue.put(("done", None))
@@ -750,6 +776,7 @@ class TTSModel(nn.Module):
             self.pad_with_spaces_for_short_inputs,
             remove_semicolons=self.remove_semicolons,
             append_terminal_punctuation=self.append_terminal_punctuation,
+            capitalize_first_letter=self.capitalize_first_letter,
         )
 
         for chunk in chunks:
@@ -758,6 +785,7 @@ class TTSModel(nn.Module):
                 self.pad_with_spaces_for_short_inputs,
                 self.remove_semicolons,
                 self.append_terminal_punctuation,
+                self.capitalize_first_letter,
             )
             frames_after_eos_guess += 2
             effective_frames = (
