@@ -536,6 +536,8 @@ class TTSModel(nn.Module):
                 latent = latents_queue.get()
                 if latent is None:
                     break
+                if not isinstance(latent, torch.Tensor):
+                    raise TypeError("Ordinary audio decoding received timestamp attention scores")
                 # Decode every latent frame the generator has queued in one call. The first frame
                 # never waits. max_decoder_frames_per_call=1 is frame-by-frame decoding.
                 latents = [latent]
@@ -551,6 +553,10 @@ class TTSModel(nn.Module):
                     if nxt is None:
                         finished = True
                     else:
+                        if not isinstance(nxt, torch.Tensor):
+                            raise TypeError(
+                                "Ordinary audio decoding received timestamp attention scores"
+                            )
                         latents.append(nxt)
                 mimi_decoding_input = (
                     torch.cat(latents, dim=1) * self.flow_lm.emb_std + self.flow_lm.emb_mean
