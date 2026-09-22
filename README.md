@@ -55,6 +55,8 @@ All official Pocket TTS checkpoints are supported, but accuracy differs between 
 Evaluation results, MAE is measured against CrisperWhisper 2.0 large:
 | Checkpoint          | Head        | Samples | Words | Skip rate | Start/end MAE |
 |---------------------|-------------|---------|-------|-----------|---------------|
+| English 2026-09     | L3H8        | 438     | 3,903 | 0.0000%   | 60.34 ms      |
+| English 2026-09 24L | L14H10      | 428     | 3,825 | 0.0000%   | 47.49 ms      |
 | English 2026-04     | L3H8        | 441     | 3,932 | 0.0000%   | 49.38 ms      |
 | English 2026-04 24L | L14H10      | 425     | 3,814 | 0.0000%   | 44.48 ms      |
 | English 2026-01     | L3H8        | 465     | 3,772 | 0.0000%   | 78.77 ms      |
