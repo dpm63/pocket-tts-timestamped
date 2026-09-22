@@ -380,7 +380,7 @@ uvx --from pocket-tts-timestamped pocket-tts-timestamped generate --config hf://
 ### List of community-trained models
 
 <details>
-<summary><a href="https://huggingface.co/vvolhejn/pocket-tts-czech">Pocket TTS Czech</a> by @vvolhejn (trained internally at Kyutai)</summary>
+<summary><a href="https://huggingface.co/vvolhejn/pocket-tts-czech">Pocket TTS Czech</a> by @vvolhejn</summary>
 
 ```bash
 uvx --from pocket-tts-timestamped pocket-tts-timestamped generate --config hf://vvolhejn/pocket-tts-czech/czech.yaml@7b7760dd0fe994a0800f2fdbc837dc4b8f219d1c --text "Dnešek je velmi dobrý den"
@@ -388,7 +388,7 @@ uvx --from pocket-tts-timestamped pocket-tts-timestamped generate --config hf://
 </details>
 
 <details>
-<summary><a href="https://huggingface.co/saryps-labs/pocket-tts-hindi">Pocket TTS Hindi</a> by <a href="https://huggingface.co/saryps-labs">Saryps Labs</a> (community research release)</summary>
+<summary><a href="https://huggingface.co/saryps-labs/pocket-tts-hindi">Pocket TTS Hindi</a> by <a href="https://huggingface.co/saryps-labs">Saryps Labs</a></summary>
 
 ```bash
 uvx --from pocket-tts-timestamped pocket-tts-timestamped generate \
@@ -398,7 +398,7 @@ uvx --from pocket-tts-timestamped pocket-tts-timestamped generate \
 </details>
 
 <details>
-<summary><a href="https://huggingface.co/seastar105/pocket-tts-korean-300m">Pocket TTS Korean 300M</a> by <a href="https://huggingface.co/seastar105">@seastar105</a> (community research release)</summary>
+<summary><a href="https://huggingface.co/seastar105/pocket-tts-korean-300m">Pocket TTS Korean 300M</a> by <a href="https://huggingface.co/seastar105">@seastar105</a></summary>
 
 ```bash
 uvx pocket-tts generate \
@@ -408,7 +408,7 @@ uvx pocket-tts generate \
 </details>
 
 <details>
-<summary><a href="https://huggingface.co/mehdi-hf/pocket-tts-farsi">Pocket TTS Persian (Farsi)</a> by @mallahyari (community research release)</summary>
+<summary><a href="https://huggingface.co/mehdi-hf/pocket-tts-farsi">Pocket TTS Persian (Farsi)</a> by @mallahyari</summary>
 
 ```bash
 uvx --with soundfile pocket-tts generate --config hf://mehdi-hf/pocket-tts-farsi/farsi.yaml@3c59d06b3177b21c5cd0df9e9e3e899f4d361c1c \
@@ -417,7 +417,7 @@ uvx --with soundfile pocket-tts generate --config hf://mehdi-hf/pocket-tts-farsi
 </details>
 
 <details>
-<summary><a href="https://huggingface.co/anak10thn/pocket-tts-indonesian">Pocket TTS Indonesian</a> by <a href="https://huggingface.co/anak10thn">@anak10thn</a> (community research release), 6 layers</summary>
+<summary><a href="https://huggingface.co/anak10thn/pocket-tts-indonesian">Pocket TTS Indonesian</a> by <a href="https://huggingface.co/anak10thn">@anak10thn</a>, 6 layers</summary>
 
 ```bash
 uvx pocket-tts generate \
@@ -427,13 +427,34 @@ uvx pocket-tts generate \
 </details>
 
 <details>
-<summary><a href="https://huggingface.co/cbentes/pocket-tts-estonian">Pocket TTS Estonian</a> by @cbentes (community research release)</summary>
+<summary><a href="https://huggingface.co/cbentes/pocket-tts-estonian">Pocket TTS Estonian</a> by @cbentes</summary>
 
 ```bash
 uvx pocket-tts generate \
   --config hf://cbentes/pocket-tts-estonian/estonian.yaml@8934022f1befb3dc568351e3b88e48a9edb94d7d \
   --voice hf://cbentes/pocket-tts-estonian/voices/et_f_reporter.wav@8934022f1befb3dc568351e3b88e48a9edb94d7d \
   --text "Tere! Mina olen eesti keele kõnesüntesaator ja töötan tavalises arvutis kiiremini kui reaalajas."
+```
+</details>
+
+<details>
+<summary><a href="https://huggingface.co/EryriLabs/pocket-tts-cymraeg">Pocket TTS Cymraeg (Welsh)</a> by <a href="https://huggingface.co/EryriLabs">EryriLabs</a>, 24 layers</summary>
+
+```bash
+uvx pocket-tts generate \
+  --config hf://EryriLabs/pocket-tts-cymraeg/config.yaml@1f23b3a8d1706b24a2faf3c77075a223ed69f57c \
+  --text "Mae'r tywydd yn braf yng Nghymru heddiw."
+```
+</details>
+
+<details>
+<summary><a href="https://huggingface.co/shefowl/pocket-tts-polish-6l">Pocket TTS Polish</a> by <a href="https://huggingface.co/shefowl">@shefowl</a>, 6 layers</summary>
+
+```bash
+uvx pocket-tts generate \
+  --config hf://shefowl/pocket-tts-polish-6l/config.yaml@a8630f2a39055d3e5a91acb7922e31bd0c506cfe \
+  --voice hf://shefowl/pocket-tts-polish-6l/reference.wav@a8630f2a39055d3e5a91acb7922e31bd0c506cfe \
+  --text "Dzień dobry. Nazywam się Krzysztof Wiśniewski i mówię po polsku."
 ```
 </details>
 

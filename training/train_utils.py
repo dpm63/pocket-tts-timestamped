@@ -14,10 +14,12 @@ import torch
 
 from pocket_tts_timestamped.models.flow_lm import FlowLMModel
 from pocket_tts_timestamped.models.mimi import MimiModel
+from pocket_tts_timestamped.modules.attention import StreamingMultiheadAttention
 from pocket_tts_timestamped.modules.stateful_module import init_states
 from training.args import TrainArgs
 from training.modules.builders import load_model_config
 from training.modules.model import TrainableTTS
+from training.modules.muon import MuonWithAuxAdam
 
 logger = logging.getLogger("train")
 
@@ -229,3 +231,78 @@ def ensure_train_latents(
             if waited > 24 * 3600:
                 raise SystemExit("gave up waiting for the latents precompute to finish")
     args.data.train_jsonl = str(latents_manifest)
+
+
+def build_optimizer(
+    model: TrainableTTS, args: TrainArgs, device: torch.device, rank: int
+) -> torch.optim.Optimizer:
+    if args.optim.type == "adamw":
+        return torch.optim.AdamW(
+            model.parameters(),
+            lr=args.optim.lr,
+            betas=args.optim.betas,
+            eps=args.optim.eps,
+            weight_decay=args.optim.weight_decay,
+            fused=device.type == "cuda",
+        )
+    assert args.optim.type == "muon", args.optim.type
+    # Muon on the backbone's 2D weights; fused weights are orthogonalized per logical block
+    # (q, k and v of the attention projection, the chunks of an adaLN modulation). AdamW for
+    # embeddings, gains, 1D params and (unless muon_head) the sampler head.
+    blocks: dict[tuple[int, ...], list[torch.Tensor]] = {}
+
+    def add(p: torch.Tensor, sizes: tuple[int, ...] = ()) -> None:
+        if p.ndim == 2 and p.requires_grad:
+            if sizes not in blocks:
+                blocks[sizes] = []
+            blocks[sizes].append(p)
+
+    for layer in model.flow_lm.transformer.layers:
+        fused: dict[int, tuple[int, ...]] = {}
+        for module in layer.modules():
+            if isinstance(module, StreamingMultiheadAttention):
+                kv_dim = (module.in_proj.weight.size(0) - module.embed_dim) // 2
+                fused[id(module.in_proj.weight)] = (module.embed_dim, kv_dim, kv_dim)
+        for p in layer.parameters():
+            add(p, fused.get(id(p), ()))
+    if args.optim.muon_head:
+        for p in model.flow_lm.flow_net.parameters():
+            if p.ndim == 2 and p.size(0) in (2 * p.size(1), 3 * p.size(1)):
+                add(p, (p.size(1),) * (p.size(0) // p.size(1)))  # adaLN shift/scale(/gate) chunks
+            else:
+                add(p)
+    muon_params = {id(p) for ps in blocks.values() for p in ps}
+    rest = [p for p in model.parameters() if p.requires_grad and id(p) not in muon_params]
+    muon_scale = 1.0 if args.optim.muon_rms_match else args.optim.muon_lr / args.optim.lr
+    # Decoupled decay multiplies by (1 - lr * wd) per step; at muon_lr the same wd would
+    # decay muon_scale times faster, so rescale it to the AdamW per-step decay.
+    groups: list[dict[str, Any]] = [
+        {
+            "params": ps,
+            "use_muon": True,
+            "lr_scale": muon_scale,
+            "weight_decay": args.optim.weight_decay / muon_scale,
+            "momentum": args.optim.muon_momentum,
+            "split_sizes": list(sizes) or None,
+            "rms_match": args.optim.muon_rms_match,
+            "polar_steps": args.optim.muon_polar_steps,
+        }
+        for sizes, ps in blocks.items()
+    ]
+    groups.append(
+        {
+            "params": rest,
+            "lr_scale": 1.0,
+            "betas": args.optim.betas,
+            "eps": args.optim.eps,
+            "weight_decay": args.optim.weight_decay,
+        }
+    )
+    groups = [g for g in groups if g["params"]]
+    if rank == 0:
+        n_split = sum(len(ps) for sizes, ps in blocks.items() if sizes)
+        logger.info(
+            f"muon on {sum(p.numel() for ps in blocks.values() for p in ps) / 1e6:.1f}M params "
+            f"({n_split} fused weights orthogonalized per block), adamw on the rest"
+        )
+    return MuonWithAuxAdam(groups)

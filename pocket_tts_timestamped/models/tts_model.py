@@ -316,7 +316,7 @@ class TTSModel(nn.Module):
             language: Optional language identifier to select a predefined config. Incompatible with
                 the `config` argument. Available options
                 are `"english_2026-01"`, `"english_2026-04"`, `"english"`, `"french_24l"`, `"german_24l"`, `"portuguese"`, `"italian"`, `"spanish_24l"`.
-                If neither `config` nor `language` is provided, defaults to `"english", which is the same model as 'english_2026-04'`.
+                If neither `config` nor `language` is provided, defaults to `"english", which is the same model as 'english_2026-09'`.
             config: A path to a custom YAML config file: a local path (e.g., `"C://pocket_tts_timestamped/pocket_tts_timestamped_config.yaml"`),
                 an `https://` URL, or an `hf://` path (e.g. `"hf://<repo_id>/<path>[@revision]"`).
             temp: Sampling temperature for generation. Higher values produce more
@@ -717,6 +717,7 @@ class TTSModel(nn.Module):
         max_tokens: int = MAX_TOKEN_PER_CHUNK,
         frames_after_eos: int | None = None,
         copy_state: bool = True,
+        stop: threading.Event | None = None,
     ) -> Iterator[torch.Tensor]:
         """Generate audio streaming chunks from text input.
 
@@ -739,6 +740,7 @@ class TTSModel(nn.Module):
             copy_state: Whether to create a deep copy of the model state before
                 generation. If True, preserves the original state for reuse.
                 If False, modifies the input state in-place. Defaults to True.
+            stop: Optional event that ends generation after the current frame.
 
         Yields:
             torch.Tensor: Audio chunks with shape [samples] at the model's
@@ -770,6 +772,8 @@ class TTSModel(nn.Module):
         """
         if frames_after_eos is None:
             frames_after_eos = self.model_recommended_frames_after_eos
+        if stop is None:
+            stop = threading.Event()
 
         # This is a very simplistic way of handling long texts. We could do much better
         # by using teacher forcing, but it would be a bit slower.
@@ -786,6 +790,8 @@ class TTSModel(nn.Module):
         )
 
         for chunk in chunks:
+            if stop.is_set():
+                break
             text_to_generate, frames_after_eos_guess = prepare_text_prompt(
                 chunk,
                 self.pad_with_spaces_for_short_inputs,
@@ -802,6 +808,7 @@ class TTSModel(nn.Module):
                 text_to_generate=text_to_generate,
                 frames_after_eos=effective_frames,
                 copy_state=copy_state,
+                stop=stop,
             )
 
     def generate_audio_with_timestamps(
@@ -993,6 +1000,7 @@ class TTSModel(nn.Module):
         text_to_generate: str,
         frames_after_eos: int,
         copy_state: bool,
+        stop: threading.Event,
     ) -> Iterator[torch.Tensor]:
         if copy_state:
             model_state = copy.deepcopy(model_state)
@@ -1025,6 +1033,7 @@ class TTSModel(nn.Module):
             frames_after_eos=frames_after_eos,
             latents_queue=latents_queue,
             result_queue=result_queue,
+            stop=stop,
         )
 
         # Stream audio chunks as they become available
@@ -1073,9 +1082,12 @@ class TTSModel(nn.Module):
         frames_after_eos: int,
         latents_queue: LatentQueue,
         result_queue: ResultQueue,
+        stop: threading.Event | None = None,
         attention_capture: SelectedAttentionCapture | None = None,
         cancel_event: threading.Event | None = None,
     ) -> threading.Thread:
+        if cancel_event is None:
+            cancel_event = stop
         token_count = prepared.shape[1]
         current_end = self._flow_lm_current_end(model_state)
         required_len = current_end + token_count + max_gen_len

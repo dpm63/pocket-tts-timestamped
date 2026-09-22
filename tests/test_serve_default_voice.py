@@ -1,5 +1,6 @@
 """Tests for the default voice of the `serve` command and of the /tts endpoint."""
 
+import threading
 from collections.abc import Iterator
 from pathlib import Path
 from types import SimpleNamespace
@@ -35,7 +36,10 @@ class FakeTTSModel:
         return self.get_state_for_audio_prompt(audio_conditioning, truncate)
 
     def generate_audio_stream(
-        self, model_state: dict[str, Any], text_to_generate: str
+        self,
+        model_state: dict[str, Any],
+        text_to_generate: str,
+        stop: threading.Event | None = None,
     ) -> Iterator[torch.Tensor]:
         self.states_used.append(model_state)
         yield torch.zeros(2400)
