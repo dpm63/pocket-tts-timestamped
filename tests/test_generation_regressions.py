@@ -1,4 +1,5 @@
 import queue
+import threading
 from collections.abc import Iterator
 from types import SimpleNamespace
 from typing import NoReturn, cast
@@ -83,6 +84,7 @@ def test_generate_reports_autoregressive_errors_before_decoder_done():
         frames_after_eos=1,
         latents_queue=latents_queue,
         result_queue=result_queue,
+        stop=threading.Event(),
     )
 
     kind, value = result_queue.get(timeout=1)
