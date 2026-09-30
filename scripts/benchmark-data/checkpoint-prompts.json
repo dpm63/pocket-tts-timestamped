@@ -1,0 +1,222 @@
+{
+  "source": "Tatoeba sentences already used in .timestamp-eval English 6L verification samples",
+  "warmup": 4,
+  "samples": [
+    {
+      "id": 12077553,
+      "voice": "george",
+      "text": "Tom was wearing blue denim jeans.",
+      "seed": 1066893548
+    },
+    {
+      "id": 9984929,
+      "voice": "fantine",
+      "text": "Yanni yelled in frustration.",
+      "seed": 1177217961
+    },
+    {
+      "id": 11802026,
+      "voice": "jane",
+      "text": "Dmitri wanted to go on a trip and experience something else besides the sea.",
+      "seed": 219488501
+    },
+    {
+      "id": 1728957,
+      "voice": "jean",
+      "text": "The school is on the hill.",
+      "seed": 1670894979
+    },
+    {
+      "id": 9050108,
+      "voice": "jane",
+      "text": "That isn't really how we do things here.",
+      "seed": 49048209
+    },
+    {
+      "id": 2379354,
+      "voice": "george",
+      "text": "Tom went to the hospital.",
+      "seed": 1635045222
+    },
+    {
+      "id": 13266458,
+      "voice": "cosette",
+      "text": "Some people believe that the tongue is the strongest muscle in the human body, but it isn't.",
+      "seed": 1583891880
+    },
+    {
+      "id": 6153359,
+      "voice": "vera",
+      "text": "I plan on skipping lunch.",
+      "seed": 1055130234
+    },
+    {
+      "id": 11813411,
+      "voice": "azelma",
+      "text": "The explosion sent debris flying all over the place.",
+      "seed": 156898083
+    },
+    {
+      "id": 6120722,
+      "voice": "george",
+      "text": "Tom thought it would be a good idea if we did that.",
+      "seed": 1464367362
+    },
+    {
+      "id": 9751912,
+      "voice": "jane",
+      "text": "Wouldn't it be great if we could have a party every day?",
+      "seed": 818361596
+    },
+    {
+      "id": 6238922,
+      "voice": "azelma",
+      "text": "Tom probably doesn't want to do that anymore.",
+      "seed": 371314387
+    },
+    {
+      "id": 7111037,
+      "voice": "michael",
+      "text": "I know that this is a sensitive issue.",
+      "seed": 1455944530
+    },
+    {
+      "id": 10681992,
+      "voice": "fantine",
+      "text": "A cup of green tea, please.",
+      "seed": 2036102215
+    },
+    {
+      "id": 11512491,
+      "voice": "paul",
+      "text": "She stole a glimpse of the birthday cake through the crack in the door.",
+      "seed": 131947585
+    },
+    {
+      "id": 9837108,
+      "voice": "charles",
+      "text": "How many people are in the lounge?",
+      "seed": 1021742281
+    },
+    {
+      "id": 2912514,
+      "voice": "paul",
+      "text": "How many people survived?",
+      "seed": 728537222
+    },
+    {
+      "id": 3902924,
+      "voice": "cosette",
+      "text": "I felt lost without you.",
+      "seed": 1388423965
+    },
+    {
+      "id": 2953738,
+      "voice": "jane",
+      "text": "We never seem to be able to agree on anything.",
+      "seed": 1213042510
+    },
+    {
+      "id": 934930,
+      "voice": "charles",
+      "text": "What examples of behaviour would you consider typically masculine?",
+      "seed": 1081523704
+    },
+    {
+      "id": 11780774,
+      "voice": "paul",
+      "text": "Rodrigo marveled at the centipede's numerous legs, which moved in perfect synchronization.",
+      "seed": 567821560
+    },
+    {
+      "id": 252167,
+      "voice": "mary",
+      "text": "I didn't like beer at that time.",
+      "seed": 1203320044
+    },
+    {
+      "id": 953121,
+      "voice": "fantine",
+      "text": "Are you seriously thinking about pursuing a career as a race car driver?",
+      "seed": 1964971435
+    },
+    {
+      "id": 11940499,
+      "voice": "george",
+      "text": "Vladimir fell asleep on the couch, resting his head on his dad's knees.",
+      "seed": 917121336
+    },
+    {
+      "id": 12190157,
+      "voice": "alba",
+      "text": "Christmas comes at the end of the year.",
+      "seed": 766923711
+    },
+    {
+      "id": 9154133,
+      "voice": "anna",
+      "text": "After this interruption, they didn't continue the conversation.",
+      "seed": 895878390
+    },
+    {
+      "id": 4663216,
+      "voice": "paul",
+      "text": "Tom didn't have to stay if he didn't want to.",
+      "seed": 1993475153
+    },
+    {
+      "id": 12196447,
+      "voice": "vera",
+      "text": "After the long hike, we were all hungry.",
+      "seed": 1007253501
+    },
+    {
+      "id": 5859807,
+      "voice": "jane",
+      "text": "I was partly right.",
+      "seed": 830948103
+    },
+    {
+      "id": 3636066,
+      "voice": "anna",
+      "text": "This looks like fun.",
+      "seed": 1713950985
+    },
+    {
+      "id": 16302,
+      "voice": "marius",
+      "text": "I think you'll have very little difficulty in getting a driver's license.",
+      "seed": 32200814
+    },
+    {
+      "id": 3654370,
+      "voice": "fantine",
+      "text": "He did not notice that there was a sick man sleeping in the next room.",
+      "seed": 746675772
+    },
+    {
+      "id": 65104,
+      "voice": "eve",
+      "text": "Don't breathe a word of it to anyone.",
+      "seed": 1401618864
+    },
+    {
+      "id": 6108529,
+      "voice": "anna",
+      "text": "Please be careful when you cross the street.",
+      "seed": 21160986
+    },
+    {
+      "id": 239621,
+      "voice": "jean",
+      "text": "The social problems of the day tend to be more and more complicated.",
+      "seed": 1366347163
+    },
+    {
+      "id": 251258,
+      "voice": "eponine",
+      "text": "I received a letter from him to the effect that he could not accept my offer.",
+      "seed": 1551672270
+    }
+  ]
+}
