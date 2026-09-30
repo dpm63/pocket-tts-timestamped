@@ -2,7 +2,7 @@
 name = "pocket-tts-timestamped"
 requires-python = ">= 3.10,<3.15"
 description = "Pocket TTS with streaming word-level timestamps"
-version = "1.0.0"
+version = "1.1.0"
 readme = "README.md"
 license = "MIT"
 license-files = ["LICENSE"]
