@@ -9,11 +9,13 @@ ranks by line index.
 import logging
 import multiprocessing.queues
 import queue
+import signal
 from collections.abc import Iterator
 from typing import Any
 
-import sentencepiece
 import torch.multiprocessing as torch_mp
+
+from pocket_tts_timestamped.modules.text_conditioner import Tokenizer, encoder_from_serialized
 
 from .loader import DataLoader
 from .types import Batch
@@ -21,15 +23,27 @@ from .types import Batch
 logger = logging.getLogger(__name__)
 
 
+def _ignore_stop_signals():
+    """scancel and Slurm's pre-timeout warning signal the whole job, loader processes included.
+
+    The trainer turns SIGTERM/SIGUSR1 into "finish this step, checkpoint, exit", which needs the
+    batches in flight: a loader (or the torch_shm_manager it spawns, which inherits this
+    disposition) that dies on the signal crashes the trainer before it can save. The trainer
+    stops the loaders itself (SubprocessDataLoader.close).
+    """
+    signal.signal(signal.SIGTERM, signal.SIG_IGN)
+    if hasattr(signal, "SIGUSR1"):
+        signal.signal(signal.SIGUSR1, signal.SIG_IGN)
+
+
 def _feed_queue(
     q: "multiprocessing.queues.Queue[Batch]",  # not subscriptable at runtime on 3.10
-    sentence_piece_proto: bytes,
+    serialized_tokenizer: tuple[str, bytes],
     loader_kwargs: dict[str, Any],
 ):
+    _ignore_stop_signals()
     torch_mp.set_sharing_strategy("file_system")
-    sentence_piece = sentencepiece.SentencePieceProcessor()
-    sentence_piece.load_from_serialized_proto(sentence_piece_proto)
-    loader = DataLoader(tokenize=sentence_piece.encode, **loader_kwargs)
+    loader = DataLoader(tokenize=encoder_from_serialized(*serialized_tokenizer), **loader_kwargs)
     for batch in loader:
         q.put(batch)
 
@@ -38,7 +52,7 @@ class SubprocessDataLoader:
     def __init__(
         self,
         jsonl: str,
-        sentence_piece: sentencepiece.SentencePieceProcessor,
+        sentence_piece: Tokenizer,
         batch_size: int,
         sample_rate: int,
         frame_rate: float,
@@ -77,12 +91,21 @@ class SubprocessDataLoader:
             }
             proc = ctx.Process(
                 target=_feed_queue,
-                args=(self._queue, sentence_piece.serialized_model_proto(), loader_kwargs),
+                args=(self._queue, sentence_piece.serialize(), loader_kwargs),
                 daemon=True,
                 name=f"dataloader-{i}",
             )
             proc.start()
             self._procs.append(proc)
+
+    def close(self):
+        """Stop the loader processes. They ignore SIGTERM, which multiprocessing's exit handler
+        relies on for daemon children, so they must be killed explicitly."""
+        for p in self._procs:
+            if p.is_alive():
+                p.kill()
+        for p in self._procs:
+            p.join(timeout=10)
 
     def _check_procs(self):
         dead = [p for p in self._procs if not p.is_alive()]

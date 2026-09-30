@@ -20,7 +20,7 @@ from torch.nn import functional as F
 from typing_extensions import Self
 
 from pocket_tts_timestamped.data.audio import audio_read
-from pocket_tts_timestamped.data.audio_utils import convert_audio
+from pocket_tts_timestamped.data.audio_utils import convert_audio, end_on_pause
 from pocket_tts_timestamped.default_parameters import (
     DEFAULT_EOS_THRESHOLD,
     DEFAULT_LANGUAGE,
@@ -102,6 +102,9 @@ VOICE_CLONING_UNSUPPORTED = (
 class TTSModel(nn.Module):
     _TOKENS_PER_SECOND_ESTIMATE = 3.0
     _GEN_SECONDS_PADDING = 2.0
+    # EOS is ignored on the first frames: before speech starts, the EOS logit of some voices can
+    # cross the threshold, and a short text then ends before the word is spoken.
+    _MIN_FRAMES_BEFORE_EOS = 6
 
     def __init__(
         self,
@@ -117,6 +120,7 @@ class TTSModel(nn.Module):
         remove_semicolons: bool = False,
         append_terminal_punctuation: bool = True,
         capitalize_first_letter: bool = True,
+        replace_characters: dict[str, str] | None = None,
     ):
         super().__init__()
         self.flow_lm = flow_lm
@@ -134,6 +138,7 @@ class TTSModel(nn.Module):
         self.remove_semicolons = remove_semicolons
         self.append_terminal_punctuation = append_terminal_punctuation
         self.capitalize_first_letter = capitalize_first_letter
+        self.replace_characters = replace_characters or {}
 
     @property
     def device(self) -> torch.device:
@@ -171,6 +176,7 @@ class TTSModel(nn.Module):
             remove_semicolons=config.remove_semicolons,
             append_terminal_punctuation=config.append_terminal_punctuation,
             capitalize_first_letter=config.capitalize_first_letter,
+            replace_characters=config.replace_characters,
         )
         return tts_model
 
@@ -315,14 +321,20 @@ class TTSModel(nn.Module):
         Args:
             language: Optional language identifier to select a predefined config. Incompatible with
                 the `config` argument. Available options
-                are `"english_2026-01"`, `"english_2026-04"`, `"english"`, `"french_24l"`, `"german_24l"`, `"portuguese"`, `"italian"`, `"spanish_24l"`.
-                If neither `config` nor `language` is provided, defaults to `"english", which is the same model as 'english_2026-09'`.
-            config: A path to a custom YAML config file: a local path (e.g., `"C://pocket_tts_timestamped/pocket_tts_timestamped_config.yaml"`),
-                an `https://` URL, or an `hf://` path (e.g. `"hf://<repo_id>/<path>[@revision]"`).
+                are `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`,
+                `"english_2026-09"`, `"english_2026-09_24l"`,
+                `"english_drifting_26-09"`, `"english"`, `"french"`, `"french_24l"`,
+                `"dutch"`, `"dutch_24l"`, `"german"`, `"german_24l"`, `"italian"`,
+                `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`,
+                `"spanish_24l"`.
+                If neither `config` nor `language` is provided, defaults to `"english"`,
+                the same model as `"english_2026-09"`.
+            config: A path to a custom YAML config file: a local path, an `https://`
+                URL, or an `hf://` path (e.g. `"hf://<repo_id>/<path>[@revision]"`).
             temp: Sampling temperature for generation. Higher values produce more
                 diverse but potentially lower quality output. If None, defaults to
                 the model's recommended value from its config file
-                (``default_temperature``, e.g. 0.3 for the English model).
+                (``default_temperature``, 0.3).
             sampler_decode_steps: Number of steps for Lagrangian Self Distillation
                 decoding. More steps can improve quality but increase computation.
             noise_clamp: Maximum value for noise sampling. If None, no clamping
@@ -367,10 +379,6 @@ class TTSModel(nn.Module):
         if config is None and language is None:
             language = DEFAULT_LANGUAGE
         if language is not None:
-            if language == "french":
-                raise ValueError(
-                    "For technical reasons, only a larger 24-layer model is available for French. Please use the 'french_24l' language instead."
-                )
             config = CONFIGS_DIR / f"{language}.yaml"
         if lsd_decode_steps is not None:
             logger.warning("lsd_decode_steps is deprecated, use sampler_decode_steps")
@@ -532,6 +540,10 @@ class TTSModel(nn.Module):
         try:
             audio_chunks = []
             mimi_state = init_states(self.mimi, batch_size=1, sequence_length=mimi_sequence_length)
+            # A fresh Mimi decoder state puts a small step (about -41 dBFS) in its first samples, heard
+            # as a click at the start of every chunk: fade the first 5 ms in. (The longer burst some
+            # voices produced came from prompts ending on speech, handled by end_on_pause.)
+            fade_in: torch.Tensor | None = torch.linspace(0, 1, self.config.mimi.sample_rate // 200)
             while True:
                 latent = latents_queue.get()
                 if latent is None:
@@ -564,6 +576,10 @@ class TTSModel(nn.Module):
 
                 t = time.monotonic()
                 audio_frame = self.mimi.decode_from_latent(mimi_decoding_input, mimi_state)
+                if fade_in is not None:
+                    n = min(fade_in.numel(), audio_frame.shape[-1])
+                    audio_frame[..., :n] *= fade_in[:n].to(audio_frame)
+                    fade_in = None
                 increment_steps(
                     self.mimi, mimi_state, increment=mimi_steps_per_latent * len(latents)
                 )
@@ -787,6 +803,7 @@ class TTSModel(nn.Module):
             remove_semicolons=self.remove_semicolons,
             append_terminal_punctuation=self.append_terminal_punctuation,
             capitalize_first_letter=self.capitalize_first_letter,
+            replace_characters=self.replace_characters,
         )
 
         for chunk in chunks:
@@ -798,6 +815,7 @@ class TTSModel(nn.Module):
                 self.remove_semicolons,
                 self.append_terminal_punctuation,
                 self.capitalize_first_letter,
+                self.replace_characters,
             )
             frames_after_eos_guess += 2
             effective_frames = (
@@ -886,9 +904,11 @@ class TTSModel(nn.Module):
             self.pad_with_spaces_for_short_inputs,
             remove_semicolons=self.remove_semicolons,
             append_terminal_punctuation=self.append_terminal_punctuation,
+            capitalize_first_letter=self.capitalize_first_letter,
+            replace_characters=self.replace_characters,
         )
         timestamp_chunks = _iter_timestamp_text_chunks(
-            text_to_generate, chunks, self.flow_lm.conditioner.tokenizer.sp, best_effort=True
+            text_to_generate, chunks, self.flow_lm.conditioner.tokenizer, best_effort=True
         )
         time_offset = 0.0
         for timestamp_chunk in timestamp_chunks:
@@ -1153,7 +1173,11 @@ class TTSModel(nn.Module):
                     unit_scores = (
                         attention_capture.finish_frame() if attention_capture is not None else None
                     )
-                    if is_eos.item() and eos_step is None:
+                    if (
+                        is_eos.item()
+                        and eos_step is None
+                        and generation_step >= self._MIN_FRAMES_BEFORE_EOS
+                    ):
                         eos_step = generation_step
                     if eos_step is not None and generation_step >= eos_step + frames_after_eos:
                         break
@@ -1294,6 +1318,7 @@ class TTSModel(nn.Module):
                 audio, conditioning_sample_rate, self.config.mimi.sample_rate, 1
             )
 
+        audio_conditioning = end_on_pause(audio_conditioning, self.config.mimi.sample_rate)
         with display_execution_time("Encoding audio prompt"):
             prompt = self._encode_audio(audio_conditioning.unsqueeze(0).to(self.device))
 

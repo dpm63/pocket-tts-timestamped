@@ -219,7 +219,7 @@ def serve(
         str | None,
         typer.Option(
             help="Language for the TTS model. "
-            "'english_2026-01', 'english_2026-04', 'english', 'french_24l', 'german_24l', 'portuguese', 'italian', 'spanish'."
+            "'english_2026-01', 'english_2026-04', 'english_2026-04_24l', 'english_2026-09', 'english_2026-09_24l', 'english_drifting_26-09', 'english', 'french', 'french_24l', 'german', 'german_24l', 'portuguese', 'portuguese_24l', 'italian', 'italian_24l', 'spanish', 'spanish_24l', 'dutch', 'dutch_24l'."
             " Incompatible with the config argument. Default is 'english', which is the same model as 'english_2026-09'.",
             show_default=False,
         ),
@@ -285,8 +285,7 @@ def generate(
         typer.Option(
             help=(
                 "Language for the TTS model. "
-                "'english_2026-01', 'english_2026-04', 'english', 'french_24l', 'spanish_24l',"
-                "'german_24l', 'portuguese_24l', 'italian_24l'."
+                "'english_2026-01', 'english_2026-04', 'english_2026-04_24l', 'english_2026-09', 'english_2026-09_24l', 'english_drifting_26-09', 'english', 'french', 'french_24l', 'german', 'german_24l', 'portuguese', 'portuguese_24l', 'italian', 'italian_24l', 'spanish', 'spanish_24l', 'dutch', 'dutch_24l'."
                 " Incompatible with the config argument. Default is 'english', which is the same model as 'english_2026-09'. "
                 "The '24l' variants are bigger models, "
                 "not distilled yet and here only as preview. They're not the final "
@@ -316,7 +315,7 @@ def generate(
         float | None,
         typer.Option(
             help="Temperature for generation. Defaults to the model's recommended "
-            "value from its config (0.3 for the English model, 0.7 otherwise)."
+            "value from its config (0.3)."
         ),
     ] = None,
     noise_clamp: Annotated[
@@ -406,8 +405,7 @@ def export_voice(
         typer.Option(
             help=(
                 "Language for the TTS model. "
-                "'english_2026-01', 'english_2026-04', 'english', 'french_24l', 'german_24l','spanish_24l',"
-                " 'portuguese_24l', 'italian_24l'."
+                "'english_2026-01', 'english_2026-04', 'english_2026-04_24l', 'english_2026-09', 'english_2026-09_24l', 'english_drifting_26-09', 'english', 'french', 'french_24l', 'german', 'german_24l', 'portuguese', 'portuguese_24l', 'italian', 'italian_24l', 'spanish', 'spanish_24l', 'dutch', 'dutch_24l'."
                 " Incompatible with the config argument. Default is 'english', which is the same model as 'english_2026-09'. "
                 "The '24l' variants are bigger models, "
                 "not distilled yet and here only as preview."

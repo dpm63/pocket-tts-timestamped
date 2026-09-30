@@ -168,30 +168,29 @@ def main(config_path: str):
     optimizer, ema, device, rank = run.optimizer, run.ema, run.device, run.rank
     progress, start_step = run.progress, run.start_step
 
-    sentence_piece = model.flow_lm.conditioner.tokenizer.sp
+    sentence_piece = model.flow_lm.conditioner.tokenizer
     tokenize = sentence_piece.encode
-    train_loader = iter(
-        SubprocessDataLoader(
-            args.data.train_jsonl,
-            sentence_piece,
-            args.batch_size,
-            mimi.sample_rate,
-            mimi.frame_rate,
-            args.data.max_duration_sec,
-            args.data.max_voice_prompt_sec,
-            rank,
-            run.world_size,
-            # Fold the resume step into the seed: the loader keeps no state
-            # across restarts, so a fixed seed would replay the same
-            # permutation from the top and bias coverage toward its head.
-            seed=args.seed + start_step,
-            shuffle=args.data.shuffle,
-            num_procs=args.data.loader_procs,
-            num_bucket_batches=args.data.num_bucket_batches,
-            prompt_trim_max_sec=args.data.prompt_trim_max_sec,
-            final_punct_dropout=args.data.final_punct_dropout,
-        )
+    train_data = SubprocessDataLoader(
+        args.data.train_jsonl,
+        sentence_piece,
+        args.batch_size,
+        mimi.sample_rate,
+        mimi.frame_rate,
+        args.data.max_duration_sec,
+        args.data.max_voice_prompt_sec,
+        rank,
+        run.world_size,
+        # Fold the resume step into the seed: the loader keeps no state
+        # across restarts, so a fixed seed would replay the same
+        # permutation from the top and bias coverage toward its head.
+        seed=args.seed + start_step,
+        shuffle=args.data.shuffle,
+        num_procs=args.data.loader_procs,
+        num_bucket_batches=args.data.num_bucket_batches,
+        prompt_trim_max_sec=args.data.prompt_trim_max_sec,
+        final_punct_dropout=args.data.final_punct_dropout,
     )
+    train_loader = iter(train_data)
 
     autocast = torch.autocast(
         device_type=device.type, dtype=torch.bfloat16, enabled=device.type == "cuda"
@@ -206,7 +205,9 @@ def main(config_path: str):
         stop_requested = True
 
     signal.signal(signal.SIGTERM, _request_stop)
-    signal.signal(signal.SIGUSR1, _request_stop)
+    sigusr1 = getattr(signal, "SIGUSR1", None)
+    if sigusr1 is not None:
+        signal.signal(sigusr1, _request_stop)
     if rank == 0:
         logger.info("starting training loop, first step can take a few minutes (compilation etc.)")
     last_log = time.time()
@@ -261,6 +262,7 @@ def main(config_path: str):
                     args.run_dir, step + 1, model, optimizer, ema, args.num_ckpt_keep, mimi
                 )
                 progress.log("checkpoint", step + 1)
+            train_data.close()
             shutdown_distributed()
             return
 
@@ -310,6 +312,7 @@ def main(config_path: str):
         if device.type == "cuda":
             logger.info(f"peak GPU memory {torch.cuda.max_memory_allocated() / 2**30:.1f} GiB")
         logger.info("done")
+    train_data.close()
     shutdown_distributed()
 
 
@@ -324,7 +327,7 @@ def validate(
     step: int,
 ) -> dict[str, float]:
     model.eval()
-    tokenize = model.flow_lm.conditioner.tokenizer.sp.encode
+    tokenize = model.flow_lm.conditioner.tokenizer.encode
     loader = iter(
         DataLoader(
             args.data.valid_jsonl,

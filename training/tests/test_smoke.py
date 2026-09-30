@@ -14,6 +14,8 @@ import sentencepiece as spm
 import torch
 from torch import nn
 
+from training.scripts.convert_tokenizer import MODEL_TYPES, _fields
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 import training.dataloader.audio as td_audio
@@ -79,7 +81,7 @@ def make_batch(
     return latents, mask, text, voice
 
 
-@pytest.mark.parametrize("flow_type", ["lsd", "flow_matching"])
+@pytest.mark.parametrize("flow_type", ["lsd", "flow_matching", "drifting"])
 def test_train_step(flow_type: str):
     model = tiny_model(flow_type)
     model.train()
@@ -92,7 +94,7 @@ def test_train_step(flow_type: str):
     assert "flow_loss" in metrics and "eos_loss" in metrics
 
 
-@pytest.mark.parametrize("flow_type,cfg", [("lsd", 1.0), ("flow_matching", 1.0)])
+@pytest.mark.parametrize("flow_type,cfg", [("lsd", 1.0), ("flow_matching", 1.0), ("drifting", 1.0)])
 def test_generate(flow_type: str, cfg: float):
     model = tiny_model(flow_type)
     tokens = torch.randint(0, 10, (5,))
@@ -303,8 +305,12 @@ def test_prefix_prompt(monkeypatch: pytest.MonkeyPatch):
 
 def test_train_tokenizer(tmp_path: Path):
     manifest = tmp_path / "m.jsonl"
+    # Unigram, the default, seeds its vocabulary from the substrings it sees, so a
+    # corpus of one repeated sentence cannot fill 64 pieces. Vary the words.
+    words = [f"{a}{b}{c}" for a in "bcdfgpst" for b in "aeiou" for c in "lmnrs"]
     lines = [
-        json.dumps({"transcript": f"hello world number {i} testing tokenizers"}) for i in range(64)
+        json.dumps({"transcript": " ".join(words[i % len(words) :][:6] or words[:6])})
+        for i in range(64)
     ]
     manifest.write_text("\n".join(lines))
     prefix = tmp_path / "tok"
@@ -316,12 +322,12 @@ def test_train_tokenizer(tmp_path: Path):
             str(prefix),
             str(manifest),
             "--vocab-size",
-            "64",
+            "320",
         ],
         check=True,
     )
     sp = spm.SentencePieceProcessor(model_file=str(prefix) + ".model")
-    assert sp.get_piece_size() == 64
+    assert sp.get_piece_size() == 320
     assert sp.encode("hello world") != []
 
 
@@ -348,3 +354,37 @@ def test_grad_accum_matches_big_batch():
         (loss_of(xs[half], ys[half]) / 2).backward()
     for g, p in zip(big, net.parameters(), strict=True):
         assert torch.allclose(g, grad_of(p), atol=1e-6)
+
+
+def test_train_tokenizer_matches_the_released_spec(tmp_path: Path):
+    """A tokenizer trained by the script carries the spec the released ones have."""
+    manifest = tmp_path / "m.jsonl"
+    words = [f"{a}{b}{c}" for a in "bcdfgpst" for b in "aeiou" for c in "lmnrs"]
+    manifest.write_text(
+        "\n".join(
+            json.dumps({"transcript": " ".join(words[i % len(words) :][:6])}) for i in range(64)
+        )
+    )
+    prefix = tmp_path / "tok"
+    subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "training.scripts.train_tokenizer",
+            str(prefix),
+            str(manifest),
+            "--vocab-size",
+            "320",
+        ],
+        check=True,
+    )
+    spec = _fields((prefix.with_suffix(".model")).read_bytes())
+    trainer, normalizer = _fields(spec[2][0]), _fields(spec[3][0])
+    assert MODEL_TYPES[trainer.get(3, [1])[0]] == "UNIGRAM"
+    assert trainer[20][0] == 6  # max_sentencepiece_length
+    assert trainer[25][0] == 1  # split_digits
+    assert trainer[26][0] == 1  # allow_whitespace_only_pieces
+    assert trainer[35][0] == 1  # byte_fallback
+    assert trainer[43][0] == 3  # pad_id
+    assert normalizer.get(4, [1])[0] == 0  # remove_extra_whitespaces off
+    assert not normalizer.get(2, [b""])[0]  # identity: no precompiled charsmap

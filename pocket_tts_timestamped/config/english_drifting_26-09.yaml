@@ -1,23 +1,9 @@
-weights_path: hf://kyutai/pocket-tts/languages/german/model.safetensors@2dd944b099d06bb9edbd221fef138685711d9bf0
-weights_path_without_voice_cloning: hf://kyutai/pocket-tts-without-voice-cloning/languages/german/model.safetensors@4e1e0a3e611c51c0b4ed8174fc10f32a54644303
-timestamp_heads:
-- layer: 3
-  head: 6
+# English 6-layer model with a one-step drifting sampler head, CFG-distilled (guidance 2.0 baked in)
+# from a 24-layer drifting teacher. training/configs/drifting*.yaml trains this kind of model.
 
-remove_semicolons: true
-replace_characters:
-  '"': ''
-  '“': ''
-  '”': ''
-  '„': ''
-  '«': ''
-  '»': ''
-  '’': ''''
-  '‘': ''''
-  '(': ''
-  ')': ''
-  '[': ''
-  ']': ''
+weights_path: hf://kyutai/pocket-tts/languages/english_drifting_26-09/model.safetensors@75cfe24e3142233bb81887fed3482e9652bb4a6e
+weights_path_without_voice_cloning: hf://kyutai/pocket-tts-without-voice-cloning/languages/english_drifting_26-09/model.safetensors@a5ce31f3eba7a3b0cb9c24ba2015b098f278eaae
+default_temperature: 0.3
 
 flow_lm:
   insert_bos_before_voice: true
@@ -25,6 +11,7 @@ flow_lm:
   flow:
     depth: 6
     dim: 512
+    type: drifting
   transformer:
     d_model: 1024
     hidden_scale: 4
@@ -35,8 +22,8 @@ flow_lm:
     dim: 1024
     n_bins: 4000
     tokenizer: tokenizers
-    tokenizer_path: hf://kyutai/pocket-tts-without-voice-cloning/languages/german/tokenizer.json@4e1e0a3e611c51c0b4ed8174fc10f32a54644303
-  #weights_path: partial.safetensors
+    tokenizer_path: hf://kyutai/pocket-tts-without-voice-cloning/languages/english_2026-09/tokenizer.json@00eac05ed3d16bdc3f6b5d598874019c34a89214
+  #weights_path: final.safetensors
 
 mimi:
   dtype: float32

@@ -42,20 +42,13 @@ _ORIGINS_OF_PREDEFINED_VOICES = {
     "lola": "hf://kyutai/pocket-tts/common_voice_es_19762977-enhanced-v2.mp3@64ab7d24c479d736a83b8cc666c4a776fca30fda",
     "juergen": "hf://kyutai/pocket-tts/de-DE-juergen.mp3@64ab7d24c479d736a83b8cc666c4a776fca30fda",
     "rafael": "hf://kyutai/pocket-tts/g-Vi8PgmSY0-enhanced-v2.wav@64ab7d24c479d736a83b8cc666c4a776fca30fda",
+    "daan": "hf://kyutai/pocket-tts/cml_tts_nl_11290_9412_000030_0001.flac@2dd944b099d06bb9edbd221fef138685711d9bf0",
     "estelle": "hf://kyutai/tts-voices/unmute-prod-website/developpeuse-3.wav@1fc7395b7e012e2bbebfca14b942a4ef62ccc899",
 }
 
 
 def get_predefined_voice(language: str, name: str) -> str:
-    revision = (
-        "e7205b6ee50e654a5ea19f0e9df2b0813b05e921"
-        if language in {"english", "english_2026-09", "english_2026-09_24l"}
-        else "e81d79e8194ad4c7ce879c87a4258ef20cbf2487"
-    )
-    return (
-        f"hf://kyutai/pocket-tts-without-voice-cloning/languages/{language}/"
-        f"embeddings/{name}.safetensors@{revision}"
-    )
+    return f"hf://kyutai/pocket-tts-without-voice-cloning/languages/{language}/embeddings/{name}.safetensors@069025daa1d6a8a9640bd52581e2a2252f8bede4"
 
 
 def make_cache_directory() -> Path:

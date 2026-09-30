@@ -7,7 +7,6 @@ from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
-import sentencepiece
 import torch
 from torch import nn
 
@@ -15,6 +14,7 @@ import pocket_tts_timestamped.timestamps.alignment as timestamp_alignment
 from pocket_tts_timestamped.models.tts_model import TTSModel
 from pocket_tts_timestamped.modules.attention import StreamingMultiheadAttention
 from pocket_tts_timestamped.modules.rope import RotaryEmbedding
+from pocket_tts_timestamped.modules.text_conditioner import build_tokenizer
 from pocket_tts_timestamped.timestamps import (
     AudioChunk,
     SelectedAttentionCapture,
@@ -30,7 +30,6 @@ from pocket_tts_timestamped.timestamps import (
     is_voiced,
 )
 from pocket_tts_timestamped.utils.config import CONFIGS_DIR, Config, load_config
-from pocket_tts_timestamped.utils.utils import download_if_necessary
 
 
 class _SentencePiece021:
@@ -465,8 +464,10 @@ def test_timestamp_generation_forwards_terminal_punctuation_setting(append_termi
     model.pad_with_spaces_for_short_inputs = False
     model.remove_semicolons = False
     model.append_terminal_punctuation = append_terminal_punctuation
+    model.capitalize_first_letter = True
+    model.replace_characters = {}
     model.flow_lm = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        conditioner=SimpleNamespace(tokenizer=SimpleNamespace(sp=object()))
+        conditioner=SimpleNamespace(tokenizer=object())
     )
     chunk = TimestampTextChunk("One", _units("One"), torch.empty(0, 1))
 
@@ -499,6 +500,8 @@ def test_timestamp_generation_forwards_terminal_punctuation_setting(append_termi
         False,
         remove_semicolons=False,
         append_terminal_punctuation=append_terminal_punctuation,
+        capitalize_first_letter=True,
+        replace_characters={},
     )
     prepare_text.assert_called_once_with("One", False, False, append_terminal_punctuation)
 
@@ -510,8 +513,10 @@ def test_chunk_event_offsets_and_global_word_indices():
     model.pad_with_spaces_for_short_inputs = False
     model.remove_semicolons = False
     model.append_terminal_punctuation = True
+    model.capitalize_first_letter = True
+    model.replace_characters = {}
     model.flow_lm = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        conditioner=SimpleNamespace(tokenizer=SimpleNamespace(sp=object()))
+        conditioner=SimpleNamespace(tokenizer=object())
     )
     chunks = [
         TimestampTextChunk("One.", _units("One", "P:."), torch.empty(0, 2)),
@@ -562,8 +567,10 @@ def test_degraded_word_gaps_preserve_audio_and_event_order():
     model.pad_with_spaces_for_short_inputs = False
     model.remove_semicolons = False
     model.append_terminal_punctuation = True
+    model.capitalize_first_letter = True
+    model.replace_characters = {}
     model.flow_lm = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        conditioner=SimpleNamespace(tokenizer=SimpleNamespace(sp=object()))
+        conditioner=SimpleNamespace(tokenizer=object())
     )
     chunk = TimestampTextChunk(
         "One different three.",
@@ -638,8 +645,8 @@ def test_timestamp_head_config_validation():
 @pytest.fixture(scope="module")
 def spanish_timestamp_tokenizer():
     config = load_config(CONFIGS_DIR / "spanish.yaml")
-    tokenizer_path = download_if_necessary(config.flow_lm.lookup_table.tokenizer_path)
-    return sentencepiece.SentencePieceProcessor(str(tokenizer_path))
+    lookup_table = config.flow_lm.lookup_table
+    return build_tokenizer(lookup_table.n_bins, lookup_table.tokenizer_path, lookup_table.tokenizer)
 
 
 @pytest.fixture(scope="module")
@@ -669,7 +676,7 @@ def test_timestamp_chunks_use_production_tokenizer_for_canonical_unicode(
     spanish_timestamp_tokenizer, source_text, expected_text, expected_words
 ):
     chunk = build_timestamp_text_chunks(source_text, [source_text], spanish_timestamp_tokenizer)[0]
-    expected_token_ids = spanish_timestamp_tokenizer.encode(chunk.text, out_type=int)
+    expected_token_ids = spanish_timestamp_tokenizer.encode(chunk.text)
 
     assert chunk.text == expected_text
     assert chunk.token_to_unit.shape[0] == len(expected_token_ids)

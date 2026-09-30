@@ -29,7 +29,7 @@ def _timestamp_chunks(conditioner, source_text, *, max_tokens=100, remove_semico
         pad_with_spaces_for_short_inputs=False,
         remove_semicolons=remove_semicolons,
     )
-    return build_timestamp_text_chunks(source_text, chunks, conditioner.tokenizer.sp)
+    return build_timestamp_text_chunks(source_text, chunks, conditioner.tokenizer)
 
 
 def _assert_mapping_contract(
@@ -38,7 +38,7 @@ def _assert_mapping_contract(
     chunks = (
         _timestamp_chunks(conditioner, source_text, **kwargs)
         if prepared_chunks is None
-        else build_timestamp_text_chunks(source_text, prepared_chunks, conditioner.tokenizer.sp)
+        else build_timestamp_text_chunks(source_text, prepared_chunks, conditioner.tokenizer)
     )
     words = [word for chunk in chunks for word in chunk.words]
 
@@ -50,7 +50,7 @@ def _assert_mapping_contract(
 
     for chunk in chunks:
         prepared = conditioner.prepare(chunk.text)
-        expected_ids = conditioner.tokenizer.sp.encode(chunk.text, out_type=int)
+        expected_ids = conditioner.tokenizer.encode(chunk.text)
         assert prepared[0].tolist() == expected_ids
         assert chunk.prepared_tokens is not None
         assert chunk.prepared_tokens[0].tolist() == expected_ids
@@ -134,7 +134,7 @@ def test_every_byte_fallback_piece_inside_a_word_is_mapped(conditioner, source_t
     )
     assert len(chunks) == 1
     chunk = chunks[0]
-    pieces = conditioner.tokenizer.sp.encode(chunk.text, out_type=str)
+    pieces = conditioner.tokenizer.tokenizer.encode(chunk.text).tokens
     byte_piece_indices = [
         index for index, piece in enumerate(pieces) if BYTE_PIECE.fullmatch(piece)
     ]
@@ -215,7 +215,7 @@ def test_empty_text_has_the_same_rejection_as_ordinary_preprocessing(conditioner
 
 def test_mapping_rejects_prepared_text_from_a_different_source(conditioner):
     with pytest.raises(ValueError, match="does not match"):
-        build_timestamp_text_chunks("source words", ["Different words."], conditioner.tokenizer.sp)
+        build_timestamp_text_chunks("source words", ["Different words."], conditioner.tokenizer)
 
 
 @pytest.mark.parametrize(
@@ -233,23 +233,21 @@ def test_common_unicode_mapping_does_not_enter_robust_fallback(conditioner, sour
         "pocket_tts_timestamped.timestamps.text._map_source_words_to_chunks",
         side_effect=AssertionError("robust fallback should not run"),
     ):
-        assert build_timestamp_text_chunks(source_text, chunks, conditioner.tokenizer.sp)
+        assert build_timestamp_text_chunks(source_text, chunks, conditioner.tokenizer)
 
 
 def test_timestamp_chunk_mapping_tokenizes_later_chunks_lazily(conditioner):
     class CountingProcessor:
         def __init__(self, processor):
             self.processor = processor
+            self.tokenizer = self
             self.encoded_texts = []
 
         def encode(self, text, *args, **kwargs):
             self.encoded_texts.append(text)
-            return self.processor.encode(text, *args, **kwargs)
+            return self.processor.tokenizer.encode(text, *args, **kwargs)
 
-        def __getattr__(self, name):
-            return getattr(self.processor, name)
-
-    processor = CountingProcessor(conditioner.tokenizer.sp)
+    processor = CountingProcessor(conditioner.tokenizer)
     iterator = _iter_timestamp_text_chunks("one two", ["One", "two."], processor, best_effort=True)
     assert processor.encoded_texts == []
 
@@ -275,7 +273,7 @@ def test_product_mapping_degrades_to_unambiguous_gaps(conditioner):
             _iter_timestamp_text_chunks(
                 "one missing three",
                 ["One different three."],
-                conditioner.tokenizer.sp,
+                conditioner.tokenizer,
                 best_effort=True,
             )
         )

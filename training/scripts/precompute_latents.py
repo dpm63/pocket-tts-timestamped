@@ -30,7 +30,9 @@ CALIBRATION_MARGIN_FRAMES = 4
 
 def default_decode_workers() -> int:
     """Size the decode pool from the cores this process may actually use."""
-    return max(4, len(os.sched_getaffinity(0)) - 2)
+    affinity = getattr(os, "sched_getaffinity", None)
+    available_cores = len(affinity(0)) if affinity is not None else os.cpu_count() or 1
+    return max(4, available_cores - 2)
 
 
 # (path, start_sec, duration_sec, sample_rate): the arguments of _load_window.
