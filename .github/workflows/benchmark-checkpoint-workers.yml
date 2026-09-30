@@ -22,7 +22,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --no-dev --python 3.11
       - name: Benchmark 6-layer TTS and save audio for STT
-        run: uv run --no-sync python scripts/benchmark_github_workers.py tts english_2026-09 --audio-dir bench-audio --output bench-results/tts-6l.json
+        run: .venv/bin/python scripts/benchmark_github_workers.py tts english_2026-09 --audio-dir bench-audio --output bench-results/tts-6l.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -43,7 +43,7 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - run: uv sync --no-dev --python 3.11
       - name: Benchmark 24-layer TTS
-        run: uv run --no-sync python scripts/benchmark_github_workers.py tts english_2026-09_24l --output bench-results/tts-24l.json
+        run: .venv/bin/python scripts/benchmark_github_workers.py tts english_2026-09_24l --output bench-results/tts-24l.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -89,7 +89,7 @@ jobs:
         if: matrix.backend == 'transformers'
         run: uv pip install --python .venv/bin/python 'crisperwhisper[transformers]==2.0.3'
       - name: Benchmark word-timestamp transcription
-        run: uv run --no-sync python scripts/benchmark_github_workers.py stt '${{ matrix.model }}' --backend '${{ matrix.backend }}' --batch-size '${{ matrix.batch_size }}' --audio-dir bench-audio --output 'bench-results/${{ matrix.key }}.json'
+        run: .venv/bin/python scripts/benchmark_github_workers.py stt '${{ matrix.model }}' --backend '${{ matrix.backend }}' --batch-size '${{ matrix.batch_size }}' --audio-dir bench-audio --output 'bench-results/${{ matrix.key }}.json'
       - uses: actions/upload-artifact@v4
         if: always()
         with:
@@ -137,7 +137,7 @@ jobs:
         if: steps.choose.outputs.backend == 'transformers'
         run: uv pip install --python .venv/bin/python 'crisperwhisper[transformers]==2.0.3'
       - name: Benchmark Large with Small winner
-        run: uv run --no-sync python scripts/benchmark_github_workers.py stt crisperwhisper-2.0-large --backend '${{ steps.choose.outputs.backend }}' --batch-size ${{ steps.choose.outputs.backend == 'ct2' && 1 || 4 }} --audio-dir bench-audio --output bench-results/crisper-large.json
+        run: .venv/bin/python scripts/benchmark_github_workers.py stt crisperwhisper-2.0-large --backend '${{ steps.choose.outputs.backend }}' --batch-size ${{ steps.choose.outputs.backend == 'ct2' && 1 || 4 }} --audio-dir bench-audio --output bench-results/crisper-large.json
       - uses: actions/upload-artifact@v4
         if: always()
         with:

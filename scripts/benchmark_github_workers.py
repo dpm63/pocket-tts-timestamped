@@ -11,7 +11,6 @@ import json
 import os
 import platform
 import time
-import wave
 from pathlib import Path
 
 PROMPTS = Path(__file__).with_name("benchmark-data") / "checkpoint-prompts.json"
@@ -105,6 +104,7 @@ def tts(model_id: str, output: Path, audio_dir: Path | None) -> None:
 
 
 def stt(model_id: str, backend: str, audio_dir: Path, output: Path, batch_size: int) -> None:
+    import scipy.io.wavfile
     import torch
 
     torch.set_num_threads(min(os.cpu_count() or 1, 4))
@@ -168,8 +168,8 @@ def stt(model_id: str, backend: str, audio_dir: Path, output: Path, batch_size: 
             raise RuntimeError("CrisperWhisper did not return word timestamps")
         audio_s = 0.0
         for path in chunk:
-            with wave.open(str(path)) as handle:
-                audio_s += handle.getnframes() / handle.getframerate()
+            sample_rate, audio = scipy.io.wavfile.read(path, mmap=True)
+            audio_s += audio.shape[-1] / sample_rate
         rows.append(
             {"batch": index, "count": len(chunk), "seconds": elapsed, "audio_seconds": audio_s}
         )
