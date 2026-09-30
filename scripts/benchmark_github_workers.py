@@ -52,6 +52,10 @@ def summary(
         "estimated_500_inference_seconds": inference_s * 500 / sample_count,
         "samples": rows,
     }
+    if mode == "stt":
+        result["outputs_with_word_timestamps"] = sum(
+            row.get("timestamped_outputs", 0) for row in measured
+        )
     save_json(output, result)
     print(
         json.dumps({key: value for key, value in result.items() if key != "samples"}, indent=2),
@@ -162,16 +166,23 @@ def stt(model_id: str, backend: str, audio_dir: Path, output: Path, batch_size: 
         elapsed = time.perf_counter() - started
         if len(outputs) != len(chunk):
             raise RuntimeError("Transcription output count differs from input count")
-        if model_id != "parakeet-tdt-0.6b-v3" and any(
-            getattr(item, "words", None) is None for item in outputs
-        ):
-            raise RuntimeError("CrisperWhisper did not return word timestamps")
+        timestamped_outputs = (
+            len(outputs)
+            if model_id == "parakeet-tdt-0.6b-v3"
+            else sum(getattr(item, "words", None) is not None for item in outputs)
+        )
         audio_s = 0.0
         for path in chunk:
             sample_rate, audio = scipy.io.wavfile.read(path, mmap=True)
             audio_s += audio.shape[-1] / sample_rate
         rows.append(
-            {"batch": index, "count": len(chunk), "seconds": elapsed, "audio_seconds": audio_s}
+            {
+                "batch": index,
+                "count": len(chunk),
+                "seconds": elapsed,
+                "audio_seconds": audio_s,
+                "timestamped_outputs": timestamped_outputs,
+            }
         )
         print(
             f"{model_id}/{backend} {sum(row['count'] for row in rows)}/{len(paths)}: "

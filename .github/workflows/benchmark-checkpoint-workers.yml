@@ -87,7 +87,7 @@ jobs:
         run: uv pip install --python .venv/bin/python 'crisperwhisper[ct2,convert]==2.0.3'
       - name: Install CrisperWhisper Transformers runtime
         if: matrix.backend == 'transformers'
-        run: uv pip install --python .venv/bin/python 'crisperwhisper[transformers]==2.0.3'
+        run: uv pip install --python .venv/bin/python 'crisperwhisper[transformers]==2.0.3' 'ctranslate2-crisperwhisper>=4.7.1.post3,<5'
       - name: Benchmark word-timestamp transcription
         run: .venv/bin/python scripts/benchmark_github_workers.py stt '${{ matrix.model }}' --backend '${{ matrix.backend }}' --batch-size '${{ matrix.batch_size }}' --audio-dir bench-audio --output 'bench-results/${{ matrix.key }}.json'
       - uses: actions/upload-artifact@v4
@@ -135,7 +135,7 @@ jobs:
         run: uv pip install --python .venv/bin/python 'crisperwhisper[ct2,convert]==2.0.3'
       - name: Install selected Transformers runtime
         if: steps.choose.outputs.backend == 'transformers'
-        run: uv pip install --python .venv/bin/python 'crisperwhisper[transformers]==2.0.3'
+        run: uv pip install --python .venv/bin/python 'crisperwhisper[transformers]==2.0.3' 'ctranslate2-crisperwhisper>=4.7.1.post3,<5'
       - name: Benchmark Large with Small winner
         run: .venv/bin/python scripts/benchmark_github_workers.py stt crisperwhisper-2.0-large --backend '${{ steps.choose.outputs.backend }}' --batch-size ${{ steps.choose.outputs.backend == 'ct2' && 1 || 4 }} --audio-dir bench-audio --output bench-results/crisper-large.json
       - uses: actions/upload-artifact@v4
