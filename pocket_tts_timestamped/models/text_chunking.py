@@ -5,8 +5,9 @@ boundaries and regrouped into chunks that fit `max_tokens`.
 """
 
 import logging
+import re
 
-from pocket_tts_timestamped.modules.text_conditioner import SentencePieceTokenizer
+from pocket_tts_timestamped.modules.text_conditioner import Tokenizer
 
 logger = logging.getLogger(__name__)
 
@@ -17,8 +18,14 @@ def prepare_text_prompt(
     remove_semicolons: bool,
     append_terminal_punctuation: bool = True,
     capitalize_first_letter: bool = True,
+    replace_characters: dict[str, str] | None = None,
 ) -> tuple[str, int]:
     text = text.strip()
+    if replace_characters:
+        text = " ".join(text.translate(str.maketrans(replace_characters)).split())
+        # Deleted quotes leave '"Hi?", she said' as 'Hi?, she said', which reads as a sentence end
+        # followed by a stray comma; keep the sentence mark only.
+        text = re.sub(r"([.!?\u2026])\s*[,;:]", r"\1", text)
     if text == "":
         raise ValueError("Text prompt cannot be empty")
     text = text.replace("\n", " ").replace("\r", " ").replace("  ", " ")
@@ -73,11 +80,11 @@ def _ensure_terminal_punctuation(text: str) -> str:
 
 
 def _is_decimal_period_boundary(
-    list_of_tokens: list[int], segment_start_idx: int, tokenizer: SentencePieceTokenizer
+    list_of_tokens: list[int], segment_start_idx: int, tokenizer: Tokenizer
 ) -> bool:
     """Return True when segment_start_idx begins right after a decimal period."""
-    prefix = tokenizer.sp.decode(list_of_tokens[:segment_start_idx])
-    suffix = tokenizer.sp.decode(list_of_tokens[segment_start_idx:])
+    prefix = tokenizer.decode(list_of_tokens[:segment_start_idx])
+    suffix = tokenizer.decode(list_of_tokens[segment_start_idx:])
     return (
         len(prefix) >= 2
         and prefix[-1] == "."
@@ -90,7 +97,7 @@ def _is_decimal_period_boundary(
 def _find_boundary_indices(
     list_of_tokens: list[int],
     boundary_tokens: list[int],
-    tokenizer: SentencePieceTokenizer | None = None,
+    tokenizer: Tokenizer | None = None,
     skip_decimal_periods: bool = False,
 ) -> list[int]:
     """Find token indices where text should be split based on boundary tokens.
@@ -121,26 +128,27 @@ def _find_boundary_indices(
 
 
 def _segments_from_boundaries(
-    list_of_tokens: list[int], boundary_indices: list[int], tokenizer: SentencePieceTokenizer
+    list_of_tokens: list[int], boundary_indices: list[int], tokenizer: Tokenizer
 ) -> list[tuple[int, str]]:
     """Decode token segments between boundary indices into (token_count, text) pairs."""
     segments = []
     for i in range(len(boundary_indices) - 1):
         start = boundary_indices[i]
         end = boundary_indices[i + 1]
-        text = tokenizer.sp.decode(list_of_tokens[start:end])
+        text = tokenizer.decode(list_of_tokens[start:end])
         segments.append((end - start, text))
     return segments
 
 
 def split_into_best_sentences(
-    tokenizer: SentencePieceTokenizer,
+    tokenizer: Tokenizer,
     text_to_generate: str,
     max_tokens: int,
     pad_with_spaces_for_short_inputs: bool,
     remove_semicolons: bool,
     append_terminal_punctuation: bool = True,
     capitalize_first_letter: bool = True,
+    replace_characters: dict[str, str] | None = None,
 ) -> list[str]:
     text_to_generate, _ = prepare_text_prompt(
         text_to_generate,
@@ -148,6 +156,7 @@ def split_into_best_sentences(
         remove_semicolons,
         append_terminal_punctuation,
         capitalize_first_letter,
+        replace_characters,
     )
     text_to_generate = text_to_generate.strip()
     tokens = tokenizer(text_to_generate)

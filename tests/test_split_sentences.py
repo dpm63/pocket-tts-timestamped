@@ -3,18 +3,15 @@
 import pytest
 
 from pocket_tts_timestamped.models.tts_model import prepare_text_prompt, split_into_best_sentences
-from pocket_tts_timestamped.modules.text_conditioner import (
-    SentencePieceTokenizer,
-    get_default_tokenizer,
-)
+from pocket_tts_timestamped.modules.text_conditioner import Tokenizer, get_default_tokenizer
 
 
 @pytest.fixture(scope="session")
-def tokenizer() -> SentencePieceTokenizer:
+def tokenizer() -> Tokenizer:
     return get_default_tokenizer()
 
 
-def test_short_text_single_chunk(tokenizer: SentencePieceTokenizer):
+def test_short_text_single_chunk(tokenizer: Tokenizer):
     """Short text should produce a single chunk."""
     chunks = split_into_best_sentences(
         tokenizer,
@@ -26,7 +23,7 @@ def test_short_text_single_chunk(tokenizer: SentencePieceTokenizer):
     assert len(chunks) == 1
 
 
-def test_multiple_sentences_split(tokenizer: SentencePieceTokenizer):
+def test_multiple_sentences_split(tokenizer: Tokenizer):
     """Multiple sentences should be split when they exceed max_tokens."""
     text = "First sentence here. Second sentence here. Third sentence here. Fourth sentence here."
     chunks = split_into_best_sentences(
@@ -35,7 +32,7 @@ def test_multiple_sentences_split(tokenizer: SentencePieceTokenizer):
     assert len(chunks) > 1
 
 
-def test_long_sentence_with_commas_is_split(tokenizer: SentencePieceTokenizer):
+def test_long_sentence_with_commas_is_split(tokenizer: Tokenizer):
     """A long sentence with only commas (no periods) should be split on commas."""
     # This is the core bug from issue #38 - the Tale of Two Cities example
     text = (
@@ -56,7 +53,7 @@ def test_long_sentence_with_commas_is_split(tokenizer: SentencePieceTokenizer):
         assert phrase in rejoined, f"'{phrase}' should be preserved after splitting"
 
 
-def test_long_sentence_with_commas_respects_max_tokens(tokenizer: SentencePieceTokenizer):
+def test_long_sentence_with_commas_respects_max_tokens(tokenizer: Tokenizer):
     """Each chunk from comma splitting should respect max_tokens (when possible)."""
     text = (
         "It was the best of times, it was the worst of times, "
@@ -75,7 +72,7 @@ def test_long_sentence_with_commas_respects_max_tokens(tokenizer: SentencePieceT
         )
 
 
-def test_mixed_sentences_and_commas(tokenizer: SentencePieceTokenizer):
+def test_mixed_sentences_and_commas(tokenizer: Tokenizer):
     """Text with both sentence boundaries and long comma-separated clauses."""
     text = (
         "Short sentence. "
@@ -90,7 +87,7 @@ def test_mixed_sentences_and_commas(tokenizer: SentencePieceTokenizer):
     assert len(chunks) >= 3
 
 
-def test_no_commas_no_periods_stays_single_chunk(tokenizer: SentencePieceTokenizer):
+def test_no_commas_no_periods_stays_single_chunk(tokenizer: Tokenizer):
     """Text with no splitting characters stays as a single chunk."""
     text = "one two three four five six seven eight nine ten eleven twelve"
     chunks = split_into_best_sentences(
@@ -100,7 +97,7 @@ def test_no_commas_no_periods_stays_single_chunk(tokenizer: SentencePieceTokeniz
     assert len(chunks) == 1
 
 
-def test_semicolons_and_colons_also_split(tokenizer: SentencePieceTokenizer):
+def test_semicolons_and_colons_also_split(tokenizer: Tokenizer):
     """Semicolons and colons should also serve as fallback split points."""
     text = (
         "First clause here; second clause here; third clause here; "
@@ -112,7 +109,7 @@ def test_semicolons_and_colons_also_split(tokenizer: SentencePieceTokenizer):
     assert len(chunks) > 1
 
 
-def test_short_sentence_not_affected_by_comma_splitting(tokenizer: SentencePieceTokenizer):
+def test_short_sentence_not_affected_by_comma_splitting(tokenizer: Tokenizer):
     """Sentences under max_tokens should not be affected by comma logic."""
     text = "Hello, world."
     chunks = split_into_best_sentences(
@@ -123,7 +120,7 @@ def test_short_sentence_not_affected_by_comma_splitting(tokenizer: SentencePiece
     assert "world" in chunks[0].lower()
 
 
-def test_empty_string_raises(tokenizer: SentencePieceTokenizer):
+def test_empty_string_raises(tokenizer: Tokenizer):
     """Empty input should raise ValueError from prepare_text_prompt."""
     with pytest.raises(ValueError, match="empty"):
         split_into_best_sentences(
@@ -141,7 +138,7 @@ def test_terminal_punctuation_can_be_disabled_for_punctuation_free_training():
     assert text == "नमस्ते आज आपका दिन कैसा रहा"
 
 
-def test_decimals_are_not_split_on_period(tokenizer: SentencePieceTokenizer):
+def test_decimals_are_not_split_on_period(tokenizer: Tokenizer):
     """Decimal periods must not be treated as sentence boundaries (issue #162)."""
     text = (
         "The average human body temperature is 98.6°F, which is a common decimal used in medicine."
@@ -154,7 +151,7 @@ def test_decimals_are_not_split_on_period(tokenizer: SentencePieceTokenizer):
     assert "98. 6" not in chunks[0]
 
 
-def test_multiple_decimals_in_one_sentence(tokenizer: SentencePieceTokenizer):
+def test_multiple_decimals_in_one_sentence(tokenizer: Tokenizer):
     """Several decimals in one sentence should stay intact."""
     text = "Pi is 3.14 and e is 2.718."
     chunks = split_into_best_sentences(
@@ -167,7 +164,7 @@ def test_multiple_decimals_in_one_sentence(tokenizer: SentencePieceTokenizer):
     assert "2. 718" not in chunks[0]
 
 
-def test_decimal_followed_by_sentence_boundary(tokenizer: SentencePieceTokenizer):
+def test_decimal_followed_by_sentence_boundary(tokenizer: Tokenizer):
     """Decimals should be preserved while real sentence boundaries still split."""
     text = (
         "The average human body temperature is 98.6°F, "
@@ -186,7 +183,7 @@ def test_decimal_followed_by_sentence_boundary(tokenizer: SentencePieceTokenizer
     assert "3. 14" not in rejoined
 
 
-def test_sentence_period_after_decimal_still_splits(tokenizer: SentencePieceTokenizer):
+def test_sentence_period_after_decimal_still_splits(tokenizer: Tokenizer):
     """A period ending a sentence after a decimal is still a boundary."""
     text = "Version 2.0 is out. Pi is 3.14."
     chunks = split_into_best_sentences(
@@ -198,7 +195,7 @@ def test_sentence_period_after_decimal_still_splits(tokenizer: SentencePieceToke
     assert "2. 0" not in chunks[0]
 
 
-def test_oversized_clause_without_commas_still_returns(tokenizer: SentencePieceTokenizer):
+def test_oversized_clause_without_commas_still_returns(tokenizer: Tokenizer):
     """A long clause with no split points should still be returned (not dropped)."""
     # 20 words with no punctuation at all - no way to split
     text = " ".join(f"word{i}" for i in range(20))
@@ -247,14 +244,37 @@ def test_capitalization_can_be_switched_off():
     Both were observed in a Persian model whose alphabet uses "S" for sh: "salAm"
     was capitalized to "SalAm" and came out as /shalaam/.
     """
-    kwargs = dict(pad_with_spaces_for_short_inputs=False, remove_semicolons=False)
-
-    on, _ = prepare_text_prompt("salAm hAle SomA", **kwargs)
+    on, _ = prepare_text_prompt("salAm hAle SomA", False, False)
     assert on.startswith("SalAm")
 
-    off, _ = prepare_text_prompt("salAm hAle SomA", capitalize_first_letter=False, **kwargs)
+    off, _ = prepare_text_prompt("salAm hAle SomA", False, False, capitalize_first_letter=False)
     assert off.startswith("salAm")
 
     # The default is unchanged, so nothing moves for the shipped languages.
-    default, _ = prepare_text_prompt("hello there", **kwargs)
+    default, _ = prepare_text_prompt("hello there", False, False)
     assert default == "Hello there."
+
+
+def test_replace_characters_rewrites_unseen_characters_before_capitalizing():
+    """Characters a model never saw in training are rewritten, and the text is re-tidied."""
+    drop = {c: "" for c in '"¡¿«»'}
+
+    got, _ = prepare_text_prompt(
+        '"¡Venid a mí, hombres!" Alzó la voz.', False, False, replace_characters=drop
+    )
+    assert got == "Venid a mí, hombres! Alzó la voz."
+
+    got, _ = prepare_text_prompt(
+        "il a dit « l’homme »", False, False, replace_characters={**drop, "’": "'"}
+    )
+    assert got == "Il a dit l'homme."
+
+    got, _ = prepare_text_prompt('"Vieni stasera?", chiese.', False, False, replace_characters=drop)
+    assert got == "Vieni stasera? chiese."
+
+    with pytest.raises(ValueError):
+        prepare_text_prompt('"  "', False, False, replace_characters=drop)
+
+    # Empty by default: shipped configs that don't set it are unchanged.
+    got, _ = prepare_text_prompt('"Yes," she said.', False, False)
+    assert got == '"Yes," she said.'

@@ -238,10 +238,15 @@ def _expand_byte_fallback_spans(
 class _SentencePieceLayoutReader:
     def __init__(self, processor: object):
         self._processor = cast(_SentencePieceProcessor, processor)
+        self._json_tokenizer = getattr(processor, "tokenizer", None)
         self._reader: Callable[[str], _PieceLayout] | None = None
 
     def read(self, text: str) -> _PieceLayout:
         if self._reader is not None:
+            return self._reader(text)
+
+        if self._json_tokenizer is not None:
+            self._reader = self._from_json_tokenizer
             return self._reader(text)
 
         try:
@@ -256,6 +261,18 @@ class _SentencePieceLayoutReader:
     def _from_offset_mapping(self, text: str) -> _PieceLayout:
         encoded = self._processor.encode(text, return_type="offset_mapping", return_bytes=True)
         return self._parse_offset_mapping(encoded)
+
+    def _from_json_tokenizer(self, text: str) -> _PieceLayout:
+        json_tokenizer = self._json_tokenizer
+        if json_tokenizer is None:
+            raise RuntimeError("JSON tokenizer is unavailable")
+        encoded = json_tokenizer.encode(text)
+        spans = tuple(_Span(int(begin), int(end)) for begin, end in encoded.offsets)
+        pieces = tuple(str(piece) for piece in encoded.tokens)
+        token_ids = tuple(int(token_id) for token_id in encoded.ids)
+        if len(spans) != len(token_ids) or len(pieces) != len(token_ids):
+            raise ValueError("JSON tokenizer ids, pieces, and offsets have different lengths")
+        return _PieceLayout(_expand_byte_fallback_spans(spans, pieces), "codepoint", token_ids)
 
     def _parse_offset_mapping(self, encoded: object) -> _PieceLayout:
         if not isinstance(encoded, dict):

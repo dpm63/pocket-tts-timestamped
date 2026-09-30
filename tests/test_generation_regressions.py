@@ -2,7 +2,7 @@ import queue
 import threading
 from collections.abc import Iterator
 from types import SimpleNamespace
-from typing import NoReturn, cast
+from typing import Any, NoReturn, cast
 
 import pytest
 import torch
@@ -23,6 +23,7 @@ def test_generate_audio_stream_uses_prepared_chunk_text(monkeypatch: pytest.Monk
         remove_semicolons: bool,
         append_terminal_punctuation: bool,
         capitalize_first_letter: bool,
+        replace_characters: dict[str, str],
     ) -> list[str]:
         assert text_to_generate == "hi"
         assert pad_with_spaces_for_short_inputs is True
@@ -46,6 +47,7 @@ def test_generate_audio_stream_uses_prepared_chunk_text(monkeypatch: pytest.Monk
             remove_semicolons=False,
             append_terminal_punctuation=True,
             capitalize_first_letter=True,
+            replace_characters={},
             _generate_audio_stream_short_text=fake_generate_audio_stream_short_text,
         ),
     )
@@ -97,7 +99,14 @@ def test_ordinary_decoder_rejects_timestamp_scores_in_drained_batch(
     monkeypatch: pytest.MonkeyPatch,
 ):
     monkeypatch.setattr(tts_model_module, "init_states", lambda *args, **kwargs: {})
-    model = cast(TTSModel, SimpleNamespace(mimi=object(), max_decoder_frames_per_call=0))
+    model = cast(
+        TTSModel,
+        SimpleNamespace(
+            mimi=object(),
+            config=SimpleNamespace(mimi=SimpleNamespace(sample_rate=24000)),
+            max_decoder_frames_per_call=0,
+        ),
+    )
     latents_queue = queue.Queue()
     result_queue = queue.Queue()
     latents_queue.put(torch.zeros((1, 1, 1)))
@@ -122,3 +131,29 @@ def test_ordinary_decoder_rejects_timestamp_scores_in_drained_batch(
 )
 def test_is_safetensors_source_handles_revisions_and_query_strings(source: str, expected: bool):
     assert _is_safetensors_source(source) is expected
+
+
+def test_decode_audio_worker_fades_in_only_the_first_decoded_frame():
+    # A fresh Mimi decoder state starts with a small step, heard as a click at every chunk start.
+    class FakeMimi(torch.nn.Module):
+        frame_size = 1920
+
+        def decode_from_latent(self, latent: torch.Tensor, state: object) -> torch.Tensor:
+            return torch.ones(1, 1, 1920 * latent.shape[1])
+
+    model = object.__new__(TTSModel)
+    torch.nn.Module.__init__(model)
+    model.mimi = cast(Any, FakeMimi())
+    model.flow_lm = cast(Any, SimpleNamespace(emb_std=1.0, emb_mean=0.0))
+    model.config = cast(Any, SimpleNamespace(mimi=SimpleNamespace(sample_rate=24000)))
+    model.max_decoder_frames_per_call = 1
+    latents: queue.Queue[torch.Tensor | tuple[torch.Tensor, torch.Tensor] | None] = queue.Queue()
+    results: queue.Queue[tuple[str, Any]] = queue.Queue()
+    for item in (torch.zeros(1, 1, 32), torch.zeros(1, 1, 32), None):
+        latents.put(item)
+    model._decode_audio_worker(latents, results, mimi_sequence_length=8, mimi_steps_per_latent=1)
+    first, second = results.get(timeout=5)[1], results.get(timeout=5)[1]
+    assert torch.equal(first[0, 0, :120], torch.linspace(0, 1, 120))
+    assert torch.all(first[..., 120:] == 1.0)
+    assert torch.all(second == 1.0)
+    assert results.get() == ("done", None)

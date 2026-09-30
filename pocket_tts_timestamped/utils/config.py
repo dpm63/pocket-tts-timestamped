@@ -19,8 +19,9 @@ class StrictModel(BaseModel):
 class FlowConfig(StrictModel):
     dim: int
     depth: int
-    # "lsd" (2 time conditions, 1-step decode) or "flow_matching" (1 time
-    # condition, Euler integration; needs >= 16 decode steps).
+    # "lsd" (2 time conditions, 1-step decode), "flow_matching" (1 time
+    # condition, Euler integration; needs >= 16 decode steps) or "drifting"
+    # (no time condition, the head maps noise to a sample in one step).
     type: str = "lsd"
 
 
@@ -134,8 +135,12 @@ class Config(StrictModel):
     # a capital *is* a phoneme it silently changes the sound ("salAm" -> "SalAm"
     # is /salaam/ -> /shalaam/).
     capitalize_first_letter: bool = True
+    # Per-character rewrites applied before tokenization ("" deletes). For characters the model's
+    # training text never contained (straight quotes, curly apostrophes in CML-TTS/MLS): their
+    # embeddings are untrained and the model speaks filler syllables where they occur.
+    replace_characters: dict[str, str] = {}
     model_recommended_frames_after_eos: int | None = None
-    default_temperature: float = 0.7
+    default_temperature: float = 0.3
     timestamp_heads: list[TimestampHeadConfig] | None = None
 
     @model_validator(mode="after")

@@ -24,7 +24,7 @@ Only the first 30 seconds of the audio file will be processed.
 ### Options
 
 - `--quiet`: Do not print any output except errors.
-- `--language`: Built-in model language or variant, including `'english_2026-01'`, `'english_2026-04'`, `'english_2026-09'`, `'english_2026-09_24l'`, `'english'`, `'french_24l'`, `'german_24l'`, `'portuguese_24l'`, `'italian_24l'`, and `'spanish_24l'` (default: `'english'`, the same model as `'english_2026-09'`). Incompatible with `--config`.
+- `--language`: Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_24l"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`.
 - `--config`: Model config yaml path — a local path, an `https://` URL, or an `hf://` path. Incompatible with `--language`.
 
 ## Examples

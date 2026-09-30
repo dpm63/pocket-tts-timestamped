@@ -1,10 +1,8 @@
-weights_path: hf://kyutai/pocket-tts/languages/german/model.safetensors@2dd944b099d06bb9edbd221fef138685711d9bf0
-weights_path_without_voice_cloning: hf://kyutai/pocket-tts-without-voice-cloning/languages/german/model.safetensors@4e1e0a3e611c51c0b4ed8174fc10f32a54644303
-timestamp_heads:
-- layer: 3
-  head: 6
+weights_path: hf://kyutai/pocket-tts/languages/french/model.safetensors@d0ebc5deb50bc6b225f686782f124dd37e2dca0a
+weights_path_without_voice_cloning: hf://kyutai/pocket-tts-without-voice-cloning/languages/french/model.safetensors@8843db76457a91db32077edf8dfcd1c0e3e755fd
 
 remove_semicolons: true
+# Replace characters that are absent from the training data.
 replace_characters:
   '"': ''
   '“': ''
@@ -12,8 +10,9 @@ replace_characters:
   '„': ''
   '«': ''
   '»': ''
-  '’': ''''
-  '‘': ''''
+  '’': "'"
+  '‘': "'"
+  ':': ','
   '(': ''
   ')': ''
   '[': ''
@@ -35,7 +34,7 @@ flow_lm:
     dim: 1024
     n_bins: 4000
     tokenizer: tokenizers
-    tokenizer_path: hf://kyutai/pocket-tts-without-voice-cloning/languages/german/tokenizer.json@4e1e0a3e611c51c0b4ed8174fc10f32a54644303
+    tokenizer_path: hf://kyutai/pocket-tts-without-voice-cloning/languages/french/tokenizer.json@8843db76457a91db32077edf8dfcd1c0e3e755fd
   #weights_path: partial.safetensors
 
 mimi:

@@ -11,6 +11,14 @@ field, e.g. the training manifests) or plain-text files (one utterance per
 line). Point the model config's lookup_table.tokenizer_path at the produced
 <prefix>.model to train with it.
 
+The defaults reproduce the spec the released tokenizers were trained with, read
+back off one of their .model files: unigram, vocab 4000, character coverage
+0.9995, pieces at most 6 characters, digits split, byte fallback, a pad id, and
+normalization left off ("identity", no whitespace squashing) so the text reaches
+the model as written. sentencepiece's own defaults differ on every one of those,
+and the normalization ones change what the tokenizer does to text at inference,
+not just how it segments.
+
 Usage:
     python -m training.scripts.train_tokenizer out/tokenizer \
         data/train.jsonl [more files ...]
@@ -52,9 +60,9 @@ def main(
         typer.Option(help="the model config's lookup_table.n_bins must be set to this exact value"),
     ] = 4000,
     character_coverage: Annotated[
-        float, typer.Option(help="lower to 0.9995 for large-alphabet languages (e.g. CJK)")
-    ] = 1.0,
-    model_type: Annotated[Literal["bpe", "unigram", "char"], typer.Option()] = "bpe",
+        float, typer.Option(help="raise to 1.0 for a small alphabet to keep every character")
+    ] = 0.9995,
+    model_type: Annotated[Literal["unigram", "bpe", "char"], typer.Option()] = "unigram",
 ):
     Path(output_prefix).parent.mkdir(parents=True, exist_ok=True)
     with tempfile.NamedTemporaryFile("w", suffix=".txt", delete=False) as tmp:
@@ -70,9 +78,20 @@ def main(
         vocab_size=vocab_size,
         character_coverage=character_coverage,
         model_type=model_type,
+        # The rest reproduces the spec the released tokenizers were trained with.
+        normalization_rule_name="identity",
+        remove_extra_whitespaces=False,
+        max_sentencepiece_length=6,
+        allow_whitespace_only_pieces=True,
+        split_digits=True,
+        byte_fallback=True,
+        pad_id=3,
+        input_sentence_size=10_000_000,
+        shuffle_input_sentence=True,
     )
     sp = spm.SentencePieceProcessor(model_file=output_prefix + ".model")
     print(f"wrote {output_prefix}.model (vocab {sp.get_piece_size()})")
+    print(f"convert it with: python -m training.scripts.convert_tokenizer {output_prefix}.model")
 
 
 if __name__ == "__main__":
