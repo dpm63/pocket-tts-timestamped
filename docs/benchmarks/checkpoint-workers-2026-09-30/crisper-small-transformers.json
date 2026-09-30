@@ -1,0 +1,82 @@
+{
+  "mode": "stt",
+  "model": "crisperwhisper-2.0-small",
+  "backend": "transformers",
+  "runner": "GitHub Actions 1000000121",
+  "runner_os": "Linux",
+  "cpu_count": 4,
+  "warmup_samples": 4,
+  "measured_samples": 32,
+  "measured_audio_seconds": 96.63999999999999,
+  "model_load_seconds": 12.827100209999998,
+  "other_setup_seconds": 0.0,
+  "inference_seconds": 137.79594214099998,
+  "seconds_per_sample": 4.3061231919062495,
+  "estimated_500_inference_seconds": 2153.0615959531247,
+  "samples": [
+    {
+      "batch": 0,
+      "count": 4,
+      "seconds": 18.60186442600002,
+      "audio_seconds": 10.88,
+      "timestamped_outputs": 4
+    },
+    {
+      "batch": 1,
+      "count": 4,
+      "seconds": 17.755354255999976,
+      "audio_seconds": 10.88,
+      "timestamped_outputs": 4
+    },
+    {
+      "batch": 2,
+      "count": 4,
+      "seconds": 17.097822839999992,
+      "audio_seconds": 12.16,
+      "timestamped_outputs": 4
+    },
+    {
+      "batch": 3,
+      "count": 4,
+      "seconds": 17.148003511000013,
+      "audio_seconds": 10.72,
+      "timestamped_outputs": 4
+    },
+    {
+      "batch": 4,
+      "count": 4,
+      "seconds": 17.020324171,
+      "audio_seconds": 10.96,
+      "timestamped_outputs": 4
+    },
+    {
+      "batch": 5,
+      "count": 4,
+      "seconds": 17.48008623199999,
+      "audio_seconds": 16.240000000000002,
+      "timestamped_outputs": 4
+    },
+    {
+      "batch": 6,
+      "count": 4,
+      "seconds": 16.986847890000007,
+      "audio_seconds": 11.120000000000001,
+      "timestamped_outputs": 4
+    },
+    {
+      "batch": 7,
+      "count": 4,
+      "seconds": 17.172466305,
+      "audio_seconds": 10.879999999999999,
+      "timestamped_outputs": 4
+    },
+    {
+      "batch": 8,
+      "count": 4,
+      "seconds": 17.135036936000006,
+      "audio_seconds": 13.68,
+      "timestamped_outputs": 4
+    }
+  ],
+  "outputs_with_word_timestamps": 32
+}

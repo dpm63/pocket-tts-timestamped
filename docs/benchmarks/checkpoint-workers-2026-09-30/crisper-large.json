@@ -1,0 +1,250 @@
+{
+  "mode": "stt",
+  "model": "crisperwhisper-2.0-large",
+  "backend": "ct2",
+  "runner": "GitHub Actions 1000000122",
+  "runner_os": "Linux",
+  "cpu_count": 4,
+  "warmup_samples": 4,
+  "measured_samples": 32,
+  "measured_audio_seconds": 96.64,
+  "model_load_seconds": 32.011419149999995,
+  "other_setup_seconds": 0.0,
+  "inference_seconds": 223.86588311099987,
+  "seconds_per_sample": 6.995808847218746,
+  "estimated_500_inference_seconds": 3497.904423609373,
+  "samples": [
+    {
+      "batch": 0,
+      "count": 4,
+      "seconds": 28.83804362299999,
+      "audio_seconds": 10.88,
+      "timestamped_outputs": 3
+    },
+    {
+      "batch": 1,
+      "count": 1,
+      "seconds": 7.582656858000007,
+      "audio_seconds": 2.64,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 2,
+      "count": 1,
+      "seconds": 6.947300332999987,
+      "audio_seconds": 1.76,
+      "timestamped_outputs": 0
+    },
+    {
+      "batch": 3,
+      "count": 1,
+      "seconds": 8.044591507999996,
+      "audio_seconds": 4.72,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 4,
+      "count": 1,
+      "seconds": 7.231352936999997,
+      "audio_seconds": 1.76,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 5,
+      "count": 1,
+      "seconds": 7.456861631999999,
+      "audio_seconds": 3.84,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 6,
+      "count": 1,
+      "seconds": 6.29537886,
+      "audio_seconds": 2.72,
+      "timestamped_outputs": 0
+    },
+    {
+      "batch": 7,
+      "count": 1,
+      "seconds": 7.1976661879999995,
+      "audio_seconds": 3.28,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 8,
+      "count": 1,
+      "seconds": 6.906116216000015,
+      "audio_seconds": 2.32,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 9,
+      "count": 1,
+      "seconds": 6.943411671999996,
+      "audio_seconds": 2.48,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 10,
+      "count": 1,
+      "seconds": 6.911604680000011,
+      "audio_seconds": 2.32,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 11,
+      "count": 1,
+      "seconds": 7.315449541999982,
+      "audio_seconds": 3.6,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 12,
+      "count": 1,
+      "seconds": 6.82660816500001,
+      "audio_seconds": 2.32,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 13,
+      "count": 1,
+      "seconds": 6.691295571999973,
+      "audio_seconds": 2.16,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 14,
+      "count": 1,
+      "seconds": 6.758996613000022,
+      "audio_seconds": 1.76,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 15,
+      "count": 1,
+      "seconds": 7.148786244000007,
+      "audio_seconds": 2.96,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 16,
+      "count": 1,
+      "seconds": 7.071629189999982,
+      "audio_seconds": 4.08,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 17,
+      "count": 1,
+      "seconds": 7.812593562000018,
+      "audio_seconds": 5.76,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 18,
+      "count": 1,
+      "seconds": 6.96285617700002,
+      "audio_seconds": 2.24,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 19,
+      "count": 1,
+      "seconds": 7.267070677999982,
+      "audio_seconds": 4.16,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 20,
+      "count": 1,
+      "seconds": 6.397161245999996,
+      "audio_seconds": 4.08,
+      "timestamped_outputs": 0
+    },
+    {
+      "batch": 21,
+      "count": 1,
+      "seconds": 6.913342698000008,
+      "audio_seconds": 1.84,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 22,
+      "count": 1,
+      "seconds": 6.854273296999963,
+      "audio_seconds": 3.6,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 23,
+      "count": 1,
+      "seconds": 6.966523760999962,
+      "audio_seconds": 3.04,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 24,
+      "count": 1,
+      "seconds": 6.775915512999973,
+      "audio_seconds": 2.64,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 25,
+      "count": 1,
+      "seconds": 6.485893627999985,
+      "audio_seconds": 1.6,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 26,
+      "count": 1,
+      "seconds": 6.481775232000018,
+      "audio_seconds": 1.92,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 27,
+      "count": 1,
+      "seconds": 7.2043698669999685,
+      "audio_seconds": 3.44,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 28,
+      "count": 1,
+      "seconds": 7.126432359999967,
+      "audio_seconds": 3.92,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 29,
+      "count": 1,
+      "seconds": 6.65968086700002,
+      "audio_seconds": 2.4,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 30,
+      "count": 1,
+      "seconds": 6.573158475000014,
+      "audio_seconds": 2.64,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 31,
+      "count": 1,
+      "seconds": 6.916336472000012,
+      "audio_seconds": 3.92,
+      "timestamped_outputs": 1
+    },
+    {
+      "batch": 32,
+      "count": 1,
+      "seconds": 7.138793067999984,
+      "audio_seconds": 4.72,
+      "timestamped_outputs": 1
+    }
+  ],
+  "outputs_with_word_timestamps": 29
+}
