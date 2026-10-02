@@ -118,6 +118,7 @@ def stt(
     output: Path,
     batch_size: int,
     compute_type: str | None = None,
+    model_revision: str | None = None,
 ) -> None:
     import scipy.io.wavfile
     import torch
@@ -137,6 +138,10 @@ def stt(
         from crisperwhisper import CrisperWhisperModel
 
         hf_id = "nyralabs/CrisperWhisper2.0_" + model_id.rsplit("-", 1)[-1]
+        if model_revision:
+            from huggingface_hub import snapshot_download
+
+            hf_id = snapshot_download(hf_id, revision=model_revision)
         compute_type = compute_type or ("int8" if backend == "ct2" else "float32")
         model = CrisperWhisperModel(hf_id, backend=backend, device="cpu", compute_type=compute_type)
     load_s = time.perf_counter() - started
@@ -171,6 +176,23 @@ def stt(
             ),
             "threads_per_engine": 4,
         }
+    if backend == "transformers" and model_id != "parakeet-tdt-0.6b-v3":
+        effective = str(next(model._engine.model.parameters()).dtype)
+        if compute_type == "float32" and effective != "torch.float32":
+            raise RuntimeError(f"Float32 requested, model uses {effective}")
+        metadata = {
+            "compute_type": compute_type,
+            "effective_compute_type": effective,
+            "versions": {
+                name: importlib.metadata.version(name)
+                for name in ("crisperwhisper", "torch", "transformers")
+            },
+            "audio_sha256": {
+                path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in paths
+            },
+        }
+    metadata["model_revision"] = model_revision
+    metadata["batch_size"] = batch_size
     rows = []
     warmup_count = fixture["warmup"]
     chunks = [paths[:warmup_count]] + [
@@ -236,6 +258,7 @@ def main() -> None:
     parser.add_argument("mode", choices=("tts", "stt"))
     parser.add_argument("model")
     parser.add_argument("--backend", choices=("ct2", "transformers"), default="ct2")
+    parser.add_argument("--model-revision")
     parser.add_argument("--compute-type", choices=("int8", "float32"))
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--audio-dir", type=Path)
@@ -253,6 +276,7 @@ def main() -> None:
             args.output,
             args.batch_size,
             args.compute_type,
+            args.model_revision,
         )
 
 

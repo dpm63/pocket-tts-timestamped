@@ -10,6 +10,10 @@ on:
       - scripts/benchmark-data/checkpoint-prompts.json
   workflow_dispatch:
     inputs:
+      turbo_benchmark:
+        description: Run Turbo float32 CT2 and Transformers throughput benchmarks
+        type: boolean
+        default: false
       precision_benchmark:
         description: Run only Large CT2 int8 versus float32 on the same CPU worker
         type: boolean
@@ -20,7 +24,7 @@ permissions:
 
 jobs:
   tts-6l:
-    if: ${{ !inputs.precision_benchmark }}
+    if: ${{ !inputs.precision_benchmark && !inputs.turbo_benchmark }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -42,7 +46,7 @@ jobs:
           retention-days: 2
 
   tts-24l:
-    if: ${{ !inputs.precision_benchmark }}
+    if: ${{ !inputs.precision_benchmark && !inputs.turbo_benchmark }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -179,4 +183,56 @@ jobs:
         with:
           name: stt-precision-results
           path: bench-results
+          if-no-files-found: ignore
+
+  turbo-audio:
+    if: ${{ inputs.turbo_benchmark }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - run: .venv/bin/python scripts/benchmark_github_workers.py tts english_2026-09 --audio-dir bench-audio --output bench-results/tts.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: turbo-benchmark-audio
+          path: bench-audio/*.wav
+          retention-days: 7
+  stt-turbo:
+    if: ${{ inputs.turbo_benchmark }}
+    needs: turbo-audio
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: ct2
+            batch_size: 1
+          - backend: transformers
+            batch_size: 4
+    env:
+      OMP_NUM_THREADS: 4
+      OPENBLAS_NUM_THREADS: 1
+      MKL_NUM_THREADS: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - uses: actions/download-artifact@v4
+        with:
+          name: turbo-benchmark-audio
+          path: bench-audio
+      - run: uv pip install --python .venv/bin/python 'crisperwhisper[ct2,convert,transformers]==2.0.3' 'ctranslate2-crisperwhisper==4.7.1.post3'
+      - run: lscpu > lscpu.txt
+      - name: Benchmark Turbo float32 word timestamps
+        run: .venv/bin/python scripts/benchmark_github_workers.py stt crisperwhisper-2.0-turbo --backend '${{ matrix.backend }}' --compute-type float32 --model-revision de0369c8a68025b7f6e86387b6eb5a3b369787c8 --batch-size '${{ matrix.batch_size }}' --audio-dir bench-audio --output 'bench-results/turbo-${{ matrix.backend }}.json'
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: turbo-${{ matrix.backend }}-results
+          path: |
+            bench-results
+            lscpu.txt
           if-no-files-found: ignore
