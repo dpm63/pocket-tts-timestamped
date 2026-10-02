@@ -202,6 +202,7 @@ def test_reference_resume_does_not_retry_rejections_and_extends_only_mae_cohort(
 ) -> None:
     import sys
 
+    pytest.importorskip("numba")
     from scripts.timestamp_eval import capture, runner
     from scripts.timestamp_eval.common import REFERENCE, file_hash, read, write
 
@@ -323,3 +324,82 @@ def test_rescore_plan_uses_saved_metrics_and_schedules_no_workers(
     assert rescored["cached"][0]["result"] == result
     assert rescored["publish"] is False
     assert calls == ["timestamp-plan", "timestamp-v1-test"]
+
+
+def test_capture_trims_non_emitted_eos_frame_from_each_chunk(tmp_path: Path) -> None:
+    pytest.importorskip("numba")
+    from collections.abc import Generator as EventGenerator
+
+    from pocket_tts_timestamped.timestamps import (
+        AudioChunk,
+        TimestampedAudio,
+        TimestampEvent,
+        TimestampTextChunk,
+    )
+    from scripts.timestamp_eval import capture
+    from scripts.timestamp_eval.capture import Generator, replay
+
+    chunks = [
+        TimestampTextChunk(
+            text=word,
+            units=(_TextUnit(word, 0, len(word), _SourceWord(word, index, 0, len(word))),),
+            token_to_unit=torch.ones(1, 1),
+        )
+        for index, word in enumerate(("one", "two"))
+    ]
+
+    class Model:
+        sample_rate = 24000
+        config = SimpleNamespace(mimi=SimpleNamespace(frame_rate=12.5))
+
+        def get_state_for_audio_prompt(self, voice: str) -> dict[str, Any]:
+            return {}
+
+        def _prepare_timestamp_text_chunk(self, chunk: TimestampTextChunk) -> torch.Tensor:
+            return torch.ones(1, 1)
+
+        def _generate_audio_with_timestamps_short_text(
+            self,
+            model_state: dict[str, Any],
+            timestamp_chunk: TimestampTextChunk,
+            frames_after_eos: int,
+            copy_state: bool,
+            time_offset: float,
+        ) -> EventGenerator[TimestampEvent, None, float]:
+            captured = capture.model_module.SelectedAttentionCapture(
+                ((0, 0),), 0, 1, timestamp_chunk.token_to_unit
+            )
+            # One emitted latent followed by a captured, non-emitted terminal step.
+            captured.record(0, (0,), torch.ones(1, 1, 1))
+            captured.record(0, (0,), torch.ones(1, 1, 1))
+            yield AudioChunk(torch.full((1920,), 0.1), time_offset, time_offset + 0.08)
+            return time_offset + 0.08
+
+        def generate_audio_with_timestamps(
+            self, state: dict[str, Any], text: str, copy_state: bool
+        ) -> TimestampedAudio:
+            audio = []
+            for index, chunk in enumerate(chunks):
+                self._prepare_timestamp_text_chunk(chunk)
+                for event in self._generate_audio_with_timestamps_short_text(
+                    model_state=state,
+                    timestamp_chunk=chunk,
+                    frames_after_eos=2,
+                    copy_state=True,
+                    time_offset=index * 0.08,
+                ):
+                    assert isinstance(event, AudioChunk)
+                    audio.append(event.audio)
+            return TimestampedAudio(torch.cat(audio), ())
+
+    generator = object.__new__(Generator)
+    generator.model = Model()  # ty: ignore[invalid-assignment]
+    generator.item = {"checkpoint_sha256": "test", "baseline": []}
+    generator.heads = [[0, 0]]
+    generator.states = {}
+    metadata = generator.generate({"voice": "alba", "seed": 1, "text": "one two"}, tmp_path)
+    assert [c["offset_seconds"] for c in metadata["chunks"]] == [0, 0.08]
+    assert [c["duration"] for c in metadata["chunks"]] == [0.08, 0.08]
+    with np.load(tmp_path / "units.npz") as data:
+        assert data["scores_0"].shape[1] == data["scores_1"].shape[1] == 1
+    np.testing.assert_allclose(replay(tmp_path, [[[0, 0]]])[0], [[0, 0.08], [0.08, 0.16]])

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from collections.abc import Generator as EventGenerator
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Any
@@ -14,8 +15,10 @@ from numpy.typing import NDArray
 
 from pocket_tts_timestamped import TTSModel
 from pocket_tts_timestamped.models import tts_model as model_module
+from pocket_tts_timestamped.models.tts_model import ModelState
 from pocket_tts_timestamped.timestamps import (
     SelectedAttentionCapture,
+    TimestampEvent,
     TimestampTextChunk,
     is_voiced,
 )
@@ -92,8 +95,10 @@ class Generator:
             self.states[voice] = model.get_state_for_audio_prompt(voice)
         captures: list[AllHeadCapture] = []
         chunks: list[TimestampTextChunk] = []
+        durations: list[float] = []
         original_capture = model_module.SelectedAttentionCapture
         original_prepare = model._prepare_timestamp_text_chunk
+        original_short_text = model._generate_audio_with_timestamps_short_text
 
         def factory(
             heads: Iterable[tuple[int, int]],
@@ -109,8 +114,22 @@ class Generator:
             chunks.append(chunk)
             return original_prepare(chunk)
 
+        def short_text(
+            model_state: ModelState,
+            timestamp_chunk: TimestampTextChunk,
+            frames_after_eos: int,
+            copy_state: bool,
+            time_offset: float,
+        ) -> EventGenerator[TimestampEvent, None, float]:
+            end = yield from original_short_text(
+                model_state, timestamp_chunk, frames_after_eos, copy_state, time_offset
+            )
+            durations.append(end - time_offset)
+            return end
+
         model_module.SelectedAttentionCapture = factory  # ty: ignore[invalid-assignment]
         setattr(model, "_prepare_timestamp_text_chunk", prepare)
+        setattr(model, "_generate_audio_with_timestamps_short_text", short_text)
         torch.manual_seed(sample["seed"])
         started = time.perf_counter()
         try:
@@ -120,6 +139,7 @@ class Generator:
         finally:
             model_module.SelectedAttentionCapture = original_capture
             setattr(model, "_prepare_timestamp_text_chunk", original_prepare)
+            setattr(model, "_generate_audio_with_timestamps_short_text", original_short_text)
         audio = result.audio.detach().cpu().numpy()
         if not len(audio) or not np.isfinite(audio).all():
             raise ValueError("Invalid generated audio")
@@ -137,15 +157,17 @@ class Generator:
             [baseline_indices] if baseline_indices else []
         )
         bounds = np.full((len(groups), len(words), 2), np.nan)
-        for index, (capture, chunk) in enumerate(zip(captures, chunks, strict=True)):
+        for index, (capture, chunk, duration) in enumerate(
+            zip(captures, chunks, durations, strict=True)
+        ):
             scores = capture.finish()
-            available = max(
-                0,
-                (len(audio) - offset_frames * samples_per_frame + samples_per_frame - 1)
-                // samples_per_frame,
-            )
-            scores = scores[:, :available]
-            frames = scores.shape[1]
+            # The terminal EOS step captures attention but does not emit a latent.
+            # Trim each chunk to its emitted audio, rather than borrowing a frame
+            # from the next chunk in a multi-chunk sample.
+            frames = round(duration * frame_rate)
+            if not frames <= scores.shape[1] <= frames + 1:
+                raise RuntimeError("Captured frame count differs from emitted chunk audio")
+            scores = scores[:, :frames]
             voiced = np.asarray(
                 [
                     is_voiced(
@@ -170,13 +192,10 @@ class Generator:
                 word_indices.append(word.word_index)
             punctuation = np.asarray(
                 [
-                    any(not u.is_word and not u.synthetic for u in chunk.units[i + 1 :])
+                    any(not u.is_word and not u.synthetic for u in chunk.units[int(i) + 1 :])
                     for i in unit_indices
                 ],
                 dtype=np.bool_,
-            )
-            duration = min(
-                frames / frame_rate, len(audio) / model.sample_rate - offset_frames / frame_rate
             )
             predicted = (
                 predict(

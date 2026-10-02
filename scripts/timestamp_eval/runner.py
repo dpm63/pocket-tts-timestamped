@@ -11,7 +11,6 @@ from typing import Any
 
 import numpy as np
 
-from scripts.timestamp_eval.alignment import metrics
 from scripts.timestamp_eval.artifacts import Artifacts
 from scripts.timestamp_eval.common import (
     PROTOCOL,
@@ -254,6 +253,7 @@ def reference_run(args: argparse.Namespace) -> None:
     CrisperWhisperModel = import_module("crisperwhisper").CrisperWhisperModel
     from huggingface_hub import snapshot_download
 
+    from scripts.timestamp_eval.alignment import metrics
     from scripts.timestamp_eval.capture import Generator
 
     work = Path(args.work)
@@ -419,6 +419,7 @@ def reference_run(args: argparse.Namespace) -> None:
 
 
 def groups_run(args: argparse.Namespace) -> None:
+    from scripts.timestamp_eval.alignment import metrics
     from scripts.timestamp_eval.capture import replay
 
     work = Path(args.work)
