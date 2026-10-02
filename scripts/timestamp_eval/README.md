@@ -30,7 +30,7 @@ Three checkpoints can run concurrently, each with eight generation and eight ali
 
 Large audio and all-head unit scores are temporary Actions caches, deleted after successful evaluation. Compact aggregate and per-utterance metrics, reference outputs, runtime provenance, reports, and frozen plans are Actions artifacts retained for 90 days. Failure/intermediate metric artifacts expire after seven days. No evaluation data is committed to the repository. After results expire, a changed/new checkpoint reference can require evaluation again; scoring an expired run requires fresh evaluation.
 
-Publication starts from current `main`, checks that checkpoint references and configured heads still match the evaluated inputs, and preserves configs changed during the run. Unrelated main commits are incorporated. An existing results PR with human edits is preserved rather than overwritten.
+Publication starts from current `main`, checks that checkpoint references and configured heads still match the evaluated inputs, and preserves configs changed during the run. Unrelated main commits are incorporated. Each evaluation has its own results PR, so a later run cannot drop changes from an older unmerged PR. Rescoring updates the original evaluation's PR. A results PR with human edits is preserved rather than overwritten.
 
 ## Development
 

@@ -172,7 +172,9 @@ def publish_run(args: argparse.Namespace) -> None:
     if any(r["skip_samples"] != 1500 or r["mae_samples"] != 500 for r in records):
         raise ValueError("Cannot publish reduced-sample results")
     command("git", "fetch", "origin", "main")
-    branch = "codex/timestamp-head-results"
+    # A later checkpoint change must not replace an older, unmerged results PR.
+    # Rescoring/continuations retain the capture run ID and update their own PR.
+    branch = f"codex/timestamp-head-results-{plan['capture_run_id']}"
     command("git", "switch", "-C", branch, "origin/main")
     updates = {}
     stale = []

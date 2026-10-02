@@ -2,7 +2,7 @@ name: Evaluate checkpoint timestamp heads
 
 on:
   push:
-    branches: [main, codex/checkpoint-head-automation]
+    branches: [main]
     paths:
       - pocket_tts_timestamped/config/**
       - scripts/timestamp_eval/**
@@ -56,8 +56,8 @@ permissions:
   actions: read
 
 concurrency:
-  group: timestamp-heads-${{ github.ref }}-${{ github.event_name == 'push' && github.ref != 'refs/heads/main' && 'smoke' || 'evaluation' }}
-  cancel-in-progress: ${{ github.event_name == 'push' && github.ref != 'refs/heads/main' }}
+  group: timestamp-heads-${{ github.ref }}-evaluation
+  cancel-in-progress: false
 
 jobs:
   plan:
@@ -95,17 +95,13 @@ jobs:
           SKIP_LIMIT: ${{ inputs.skip_limit }}
         run: |
           args=(--skip-penalty "${SKIP_PENALTY:-10}" --head-penalty "${HEAD_PENALTY:-0.5}" --skip-limit "${SKIP_LIMIT:-0.5}")
-          if [ "$GITHUB_EVENT_NAME" = push ] && [ "$GITHUB_REF_NAME" = codex/checkpoint-head-automation ]; then
-            args+=(--force --models english_2026-09 --skip-samples 60 --mae-samples 20)
-          else
-            args+=(--skip-samples "${SKIP_SAMPLES:-1500}" --mae-samples "${MAE_SAMPLES:-500}")
-            if [ "$FORCE" = true ]; then args+=(--force); fi
-            if [ "$GITHUB_EVENT_NAME" = push ] || [ "$PUBLISH" = true ]; then args+=(--publish); fi
-            if [ -n "$MODELS" ]; then args+=(--models "$MODELS"); fi
-            if [ -n "$BEFORE" ]; then args+=(--before "$BEFORE"); fi
-            if [ -n "$RESCORE" ]; then args+=(--rescore-run "$RESCORE"); fi
-            if [ -n "$RESUME" ]; then args+=(--resume-run "$RESUME"); fi
-          fi
+          args+=(--skip-samples "${SKIP_SAMPLES:-1500}" --mae-samples "${MAE_SAMPLES:-500}")
+          if [ "$FORCE" = true ]; then args+=(--force); fi
+          if [ "$GITHUB_EVENT_NAME" = push ] || [ "$PUBLISH" = true ]; then args+=(--publish); fi
+          if [ -n "$MODELS" ]; then args+=(--models "$MODELS"); fi
+          if [ -n "$BEFORE" ]; then args+=(--before "$BEFORE"); fi
+          if [ -n "$RESCORE" ]; then args+=(--rescore-run "$RESCORE"); fi
+          if [ -n "$RESUME" ]; then args+=(--resume-run "$RESUME"); fi
           .venv/bin/python -m scripts.timestamp_eval plan "${args[@]}"
       - uses: actions/upload-artifact@v4
         with:
