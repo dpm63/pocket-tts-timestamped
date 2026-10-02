@@ -142,7 +142,8 @@ def stt(
     load_s = time.perf_counter() - started
     if backend == "ct2" and model_id != "parakeet-tdt-0.6b-v3":
         effective = model._engine.model.compute_type
-        if effective != compute_type:
+        allowed = {"int8", "int8_float32"} if compute_type == "int8" else {compute_type}
+        if effective not in allowed:
             raise RuntimeError(f"Requested {compute_type}, engine uses {effective}")
         metadata = {
             "compute_type": compute_type,
