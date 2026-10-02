@@ -195,7 +195,11 @@ def stt(
     metadata["batch_size"] = batch_size
     rows = []
     warmup_count = fixture["warmup"]
-    chunks = [paths[:warmup_count]] + [
+    warmup_chunks = [
+        paths[offset : min(offset + batch_size, warmup_count)]
+        for offset in range(0, warmup_count, batch_size)
+    ]
+    chunks = warmup_chunks + [
         paths[offset : offset + batch_size]
         for offset in range(warmup_count, len(paths), batch_size)
     ]
@@ -250,7 +254,7 @@ def stt(
             f"{elapsed:.2f}s",
             flush=True,
         )
-    summary("stt", model_id, backend, load_s, 0.0, rows, 1, output, metadata)
+    summary("stt", model_id, backend, load_s, 0.0, rows, len(warmup_chunks), output, metadata)
 
 
 def main() -> None:

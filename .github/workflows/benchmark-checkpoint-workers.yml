@@ -211,7 +211,7 @@ jobs:
           - backend: ct2
             batch_size: 1
           - backend: transformers
-            batch_size: 4
+            batch_size: 1
     env:
       OMP_NUM_THREADS: 4
       OPENBLAS_NUM_THREADS: 1
