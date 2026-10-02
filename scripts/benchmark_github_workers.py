@@ -7,6 +7,8 @@ Run via the manual benchmark workflow; warmup samples are excluded from rates.
 from __future__ import annotations
 
 import argparse
+import hashlib
+import importlib.metadata
 import json
 import os
 import platform
@@ -30,6 +32,7 @@ def summary(
     rows: list[dict],
     warmup: int,
     output: Path,
+    metadata: dict | None = None,
 ) -> None:
     measured = rows[warmup:]
     sample_count = sum(row["count"] for row in measured)
@@ -52,6 +55,7 @@ def summary(
         "estimated_500_inference_seconds": inference_s * 500 / sample_count,
         "samples": rows,
     }
+    result.update(metadata or {})
     if mode == "stt":
         result["outputs_with_word_timestamps"] = sum(
             row.get("timestamped_outputs", 0) for row in measured
@@ -107,7 +111,14 @@ def tts(model_id: str, output: Path, audio_dir: Path | None) -> None:
     summary("tts", model_id, None, load_s, setup_s, rows, fixture["warmup"], output)
 
 
-def stt(model_id: str, backend: str, audio_dir: Path, output: Path, batch_size: int) -> None:
+def stt(
+    model_id: str,
+    backend: str,
+    audio_dir: Path,
+    output: Path,
+    batch_size: int,
+    compute_type: str | None = None,
+) -> None:
     import scipy.io.wavfile
     import torch
 
@@ -116,6 +127,7 @@ def stt(model_id: str, backend: str, audio_dir: Path, output: Path, batch_size: 
     paths = [audio_dir / f"{index:03d}.wav" for index in range(len(fixture["samples"]))]
     if any(not path.exists() for path in paths):
         raise FileNotFoundError("The TTS audio artifact is incomplete")
+    metadata = {}
     started = time.perf_counter()
     if model_id == "parakeet-tdt-0.6b-v3":
         from nemo.collections.asr.models import ASRModel
@@ -125,13 +137,39 @@ def stt(model_id: str, backend: str, audio_dir: Path, output: Path, batch_size: 
         from crisperwhisper import CrisperWhisperModel
 
         hf_id = "nyralabs/CrisperWhisper2.0_" + model_id.rsplit("-", 1)[-1]
-        model = CrisperWhisperModel(
-            hf_id,
-            backend=backend,
-            device="cpu",
-            compute_type="int8" if backend == "ct2" else "float32",
-        )
+        compute_type = compute_type or ("int8" if backend == "ct2" else "float32")
+        model = CrisperWhisperModel(hf_id, backend=backend, device="cpu", compute_type=compute_type)
     load_s = time.perf_counter() - started
+    if backend == "ct2" and model_id != "parakeet-tdt-0.6b-v3":
+        effective = model._engine.model.compute_type
+        if effective != compute_type:
+            raise RuntimeError(f"Requested {compute_type}, engine uses {effective}")
+        metadata = {
+            "compute_type": compute_type,
+            "effective_compute_type": effective,
+            "model_path": str(model._engine.model_path),
+            "versions": {
+                name: importlib.metadata.version(name)
+                for name in (
+                    "crisperwhisper",
+                    "ctranslate2-crisperwhisper",
+                    "torch",
+                    "transformers",
+                )
+            },
+            "audio_sha256": {
+                path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in paths
+            },
+            "cpu_model": next(
+                (
+                    line.split(":", 1)[1].strip()
+                    for line in Path("/proc/cpuinfo").read_text().splitlines()
+                    if line.startswith("model name")
+                ),
+                None,
+            ),
+            "threads_per_engine": 4,
+        }
     rows = []
     warmup_count = fixture["warmup"]
     chunks = [paths[:warmup_count]] + [
@@ -189,7 +227,7 @@ def stt(model_id: str, backend: str, audio_dir: Path, output: Path, batch_size: 
             f"{elapsed:.2f}s",
             flush=True,
         )
-    summary("stt", model_id, backend, load_s, 0.0, rows, 1, output)
+    summary("stt", model_id, backend, load_s, 0.0, rows, 1, output, metadata)
 
 
 def main() -> None:
@@ -197,6 +235,7 @@ def main() -> None:
     parser.add_argument("mode", choices=("tts", "stt"))
     parser.add_argument("model")
     parser.add_argument("--backend", choices=("ct2", "transformers"), default="ct2")
+    parser.add_argument("--compute-type", choices=("int8", "float32"))
     parser.add_argument("--batch-size", type=int, default=1)
     parser.add_argument("--audio-dir", type=Path)
     parser.add_argument("--output", type=Path, required=True)
@@ -206,7 +245,14 @@ def main() -> None:
     else:
         if args.audio_dir is None:
             parser.error("STT requires --audio-dir")
-        stt(args.model, args.backend, args.audio_dir, args.output, args.batch_size)
+        stt(
+            args.model,
+            args.backend,
+            args.audio_dir,
+            args.output,
+            args.batch_size,
+            args.compute_type,
+        )
 
 
 if __name__ == "__main__":

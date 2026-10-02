@@ -9,12 +9,18 @@ on:
       - scripts/benchmark_crisper_batch_adapter.py
       - scripts/benchmark-data/checkpoint-prompts.json
   workflow_dispatch:
+    inputs:
+      precision_benchmark:
+        description: Run only Large CT2 int8 versus float32 on the same CPU worker
+        type: boolean
+        default: false
 
 permissions:
   contents: read
 
 jobs:
   tts-6l:
+    if: ${{ !inputs.precision_benchmark }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -36,6 +42,7 @@ jobs:
           retention-days: 2
 
   tts-24l:
+    if: ${{ !inputs.precision_benchmark }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -143,4 +150,33 @@ jobs:
         with:
           name: stt-large-results
           path: bench-results/crisper-large.json
+          if-no-files-found: ignore
+
+  stt-precision:
+    if: ${{ inputs.precision_benchmark }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: 4
+      OPENBLAS_NUM_THREADS: 1
+      MKL_NUM_THREADS: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - name: Regenerate the original benchmark fixture
+        run: .venv/bin/python scripts/benchmark_github_workers.py tts english_2026-09 --audio-dir bench-audio --output bench-results/tts-6l.json
+      - name: Install pinned CT2 runtime
+        run: uv pip install --python .venv/bin/python 'crisperwhisper[ct2,convert]==2.0.3' 'ctranslate2-crisperwhisper==4.7.1.post3'
+      - name: Record worker hardware
+        run: lscpu > bench-results/lscpu.txt
+      - name: Benchmark Large int8 control
+        run: .venv/bin/python scripts/benchmark_github_workers.py stt crisperwhisper-2.0-large --backend ct2 --compute-type int8 --audio-dir bench-audio --output bench-results/crisper-large-int8.json
+      - name: Benchmark Large full precision
+        run: .venv/bin/python scripts/benchmark_github_workers.py stt crisperwhisper-2.0-large --backend ct2 --compute-type float32 --audio-dir bench-audio --output bench-results/crisper-large-float32.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: stt-precision-results
+          path: bench-results
           if-no-files-found: ignore
