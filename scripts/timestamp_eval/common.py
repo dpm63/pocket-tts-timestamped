@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
 import subprocess
 from pathlib import Path
 from typing import Any
@@ -145,7 +144,9 @@ def head_label(heads: list[list[int]]) -> str:
 
 
 def lexical_words(text: str) -> list[str]:
-    return re.findall(r"[^\W_]+(?:[-‐‑'’][^\W_]+)*", text, flags=re.UNICODE)
+    from pocket_tts_timestamped.timestamps.text import _lexical_word_spans
+
+    return [text[span.begin : span.end] for span in _lexical_word_spans(text)]
 
 
 def normalize(word: str) -> str:

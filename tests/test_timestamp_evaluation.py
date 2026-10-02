@@ -17,7 +17,7 @@ import yaml
 from pocket_tts_timestamped.timestamps import WordAlignment, WordEnd
 from pocket_tts_timestamped.timestamps.text import _SourceWord, _TextUnit
 from scripts.timestamp_eval.artifacts import Artifacts
-from scripts.timestamp_eval.common import config_identity, strict_match
+from scripts.timestamp_eval.common import config_identity, lexical_words, strict_match
 from scripts.timestamp_eval.publish import update_config, update_readme
 from scripts.timestamp_eval.scoring import candidates, rank, summarize
 
@@ -67,6 +67,16 @@ def test_content_identity_ignores_heads_and_generation_context() -> None:
 
 
 def test_strict_matching_rejects_segmentation_and_missing_timing() -> None:
+    assert lexical_words("El nin\u0303o habla de l’été y del well-known.") == [
+        "El",
+        "nin\u0303o",
+        "habla",
+        "de",
+        "l’été",
+        "y",
+        "del",
+        "well-known",
+    ]
     assert strict_match([{"word": "L’été,", "start": 0.0, "end": 1.0}], ["l’été"])
     assert not strict_match([{"word": "word", "start": float("nan"), "end": 1.0}], ["word"])
     assert not strict_match([{"word": "one two", "start": 0.0, "end": 1.0}], ["one", "two"])
