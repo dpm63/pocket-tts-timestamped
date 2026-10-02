@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 import io
 import zipfile
 from pathlib import Path
@@ -267,7 +268,7 @@ def test_reference_resume_does_not_retry_rejections_and_extends_only_mae_cohort(
     monkeypatch.setattr(runner, "extend", lambda item, path, target: samples)
     monkeypatch.setattr(capture, "Generator", Generator)
     monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
-    runner.reference_run(SimpleNamespace(work=str(tmp_path), key="test", budget_seconds=60))
+    runner.reference_run(argparse.Namespace(work=str(tmp_path), key="test", budget_seconds=60))
     assert called == [1, 2]
     assert generated == [2]
     status = read(tmp_path / "reference/status.json")
@@ -307,7 +308,7 @@ def test_rescore_plan_uses_saved_metrics_and_schedules_no_workers(
     monkeypatch.setenv("GITHUB_RUN_ID", "2")
     monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
     runner.plan_run(
-        SimpleNamespace(
+        argparse.Namespace(
             work=str(tmp_path),
             resume_run=None,
             rescore_run=1,
