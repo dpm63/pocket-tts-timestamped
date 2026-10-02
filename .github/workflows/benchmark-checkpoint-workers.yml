@@ -10,6 +10,10 @@ on:
       - scripts/benchmark-data/checkpoint-prompts.json
   workflow_dispatch:
     inputs:
+      medium_benchmark:
+        description: Run only Medium float32 CT2 throughput on the cached fixture
+        type: boolean
+        default: false
       turbo_benchmark:
         description: Run Turbo float32 CT2 and Transformers throughput benchmarks
         type: boolean
@@ -21,10 +25,11 @@ on:
 
 permissions:
   contents: read
+  actions: read
 
 jobs:
   tts-6l:
-    if: ${{ !inputs.precision_benchmark && !inputs.turbo_benchmark }}
+    if: ${{ !inputs.precision_benchmark && !inputs.turbo_benchmark && !inputs.medium_benchmark }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -46,7 +51,7 @@ jobs:
           retention-days: 2
 
   tts-24l:
-    if: ${{ !inputs.precision_benchmark && !inputs.turbo_benchmark }}
+    if: ${{ !inputs.precision_benchmark && !inputs.turbo_benchmark && !inputs.medium_benchmark }}
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
@@ -232,6 +237,37 @@ jobs:
         if: always()
         with:
           name: turbo-${{ matrix.backend }}-results
+          path: |
+            bench-results
+            lscpu.txt
+          if-no-files-found: ignore
+
+  stt-medium:
+    if: ${{ inputs.medium_benchmark }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      OMP_NUM_THREADS: 4
+      OPENBLAS_NUM_THREADS: 1
+      MKL_NUM_THREADS: 4
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - uses: actions/download-artifact@v4
+        with:
+          name: turbo-benchmark-audio
+          run-id: 36966248465
+          github-token: ${{ github.token }}
+          path: bench-audio
+      - run: uv pip install --python .venv/bin/python 'crisperwhisper[ct2,convert]==2.0.3' 'ctranslate2-crisperwhisper==4.7.1.post3'
+      - run: lscpu > lscpu.txt
+      - name: Benchmark Medium float32 CT2 word timestamps
+        run: .venv/bin/python scripts/benchmark_github_workers.py stt crisperwhisper-2.0-medium --backend ct2 --compute-type float32 --model-revision f011e4a7869860de1ce596391d53c18bf8853e77 --batch-size 1 --audio-dir bench-audio --output bench-results/medium-ct2.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: medium-ct2-results
           path: |
             bench-results
             lscpu.txt
