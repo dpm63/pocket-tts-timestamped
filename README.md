@@ -54,7 +54,7 @@ for event in stream:
 All official Pocket TTS checkpoints are supported, but accuracy differs between them. Selection results, MAE is measured against CrisperWhisper 2.0 medium
 | Checkpoint | Heads | Skip samples | Skip words | Skip rate | MAE samples | MAE words | Start/end MAE |
 |---|---|---:|---:|---:|---:|---:|---:|
-| Dutch | L3H14+L4H5+L5H4 | 1500 | 14,470 | 0.0207% | 500 | 4,646 | 74.27 ms |
+| Dutch | L4H5+L3H9+L3H14+L2H0 | 1500 | 14,566 | 0.0000% | 500 | 4,753 | 69.41 ms |
 | Dutch 24L | L17H13+L17H11 | 1500 | 14,548 | 0.0069% | 500 | 4,740 | 71.84 ms |
 | English | L3H8+L2H0 | 1500 | 14,520 | 0.0620% | 500 | 4,819 | 51.23 ms |
 | English 2026-01 | L3H8+L2H0 | 1500 | 14,577 | 0.0480% | 500 | 4,796 | 52.21 ms |
@@ -63,15 +63,15 @@ All official Pocket TTS checkpoints are supported, but accuracy differs between 
 | English 2026-09 | L3H8+L2H0 | 1500 | 14,520 | 0.0620% | 500 | 4,819 | 51.23 ms |
 | English 2026-09 24L | L14H10+L17H11+L15H4 | 1500 | 14,522 | 0.0551% | 500 | 4,834 | 46.01 ms |
 | English Drifting 26-09 | L2H15 | 1500 | 14,525 | 0.0000% | 500 | 4,811 | 39.08 ms |
-| French | L3H9 | 1500 | 14,294 | 0.0000% | 500 | 4,703 | 51.33 ms |
-| French 24L | L17H13+L20H12+L17H11+L18H5 | 1500 | 14,378 | 0.0904% | 500 | 4,792 | 50.99 ms |
-| German | L3H14+L2H0 | 1500 | 14,877 | 0.9209% | 500 | 4,682 | 44.81 ms |
-| German 24L | L17H11+L15H4 | 1500 | 14,831 | 0.6338% | 500 | 4,822 | 38.64 ms |
-| Italian | L3H9+L4H5+L3H14+L3H0 | 1500 | 14,524 | 0.0000% | 500 | 4,798 | 67.67 ms |
-| Italian 24L | L17H13+L20H12+L17H11 | 1500 | 14,457 | 0.0069% | 500 | 4,767 | 65.54 ms |
-| Portuguese | L3H9+L4H2+L4H5+L3H10 | 1500 | 14,774 | 0.5076% | 500 | 4,675 | 72.55 ms |
+| French | L3H9 | 1500 | 14,414 | 0.0347% | 500 | 4,814 | 63.20 ms |
+| French 24L | L17H13+L16H9+L18H5+L17H11 | 1500 | 14,335 | 0.0140% | 500 | 4,849 | 61.30 ms |
+| German | L3H14+L3H9+L3H10 | 1500 | 14,849 | 0.0471% | 500 | 4,748 | 45.57 ms |
+| German 24L | L17H11+L15H4 | 1500 | 14,896 | 0.0000% | 500 | 4,799 | 40.30 ms |
+| Italian | L3H9+L4H5+L3H10 | 1500 | 14,422 | 0.0139% | 500 | 4,767 | 63.79 ms |
+| Italian 24L | L17H13+L13H10+L18H5+L14H10 | 1500 | 14,493 | 0.0138% | 500 | 4,810 | 64.46 ms |
+| Portuguese | L3H9+L4H2+L4H5+L3H14+L3H4 | 1500 | 14,699 | 0.1565% | 500 | 4,723 | 70.79 ms |
 | Portuguese 24L | L17H13+L18H1+L20H12 | 1500 | 14,673 | 0.0886% | 500 | 4,696 | 71.98 ms |
-| Spanish | L3H9+L3H14+L4H5 | 1500 | 14,775 | 0.0000% | 500 | 4,797 | 68.80 ms |
+| Spanish | L3H9+L4H2+L4H5+L3H10 | 1500 | 14,769 | 0.0271% | 500 | 4,827 | 66.10 ms |
 | Spanish 24L | L17H13+L17H11+L18H1 | 1500 | 14,756 | 0.0542% | 500 | 4,783 | 66.92 ms |
 
 # About Pocket TTS

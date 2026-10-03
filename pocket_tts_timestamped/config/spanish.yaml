@@ -20,10 +20,12 @@ replace_characters:
 timestamp_heads:
 - layer: 3
   head: 9
-- layer: 3
-  head: 14
+- layer: 4
+  head: 2
 - layer: 4
   head: 5
+- layer: 3
+  head: 10
 
 flow_lm:
   insert_bos_before_voice: true
