@@ -51,24 +51,28 @@ for event in stream:
 ```
 
 ### Checkpoint support
-All official Pocket TTS checkpoints are supported, but accuracy differs between them.
-Evaluation results, MAE is measured against CrisperWhisper 2.0 large:
-| Checkpoint          | Head        | Samples | Words | Skip rate | Start/end MAE |
-|---------------------|-------------|---------|-------|-----------|---------------|
-| English 2026-09     | L3H8        | 438     | 3,903 | 0.0000%   | 60.34 ms      |
-| English 2026-09 24L | L14H10      | 428     | 3,825 | 0.0000%   | 47.49 ms      |
-| English 2026-04     | L3H8        | 441     | 3,932 | 0.0000%   | 49.38 ms      |
-| English 2026-04 24L | L14H10      | 425     | 3,814 | 0.0000%   | 44.48 ms      |
-| English 2026-01     | L3H8        | 465     | 3,772 | 0.0000%   | 78.77 ms      |
-| French 24L          | L11H9+L17H8 | 263     | 2,162 | 0.1850%   | 72.91 ms      |
-| German              | L3H6        | 309     | 2,610 | 0.0000%   | 64.26 ms      |
-| German 24L          | L3H6+L16H6  | 277     | 2,385 | 0.0000%   | 69.90 ms      |
-| Italian             | L4H0        | 314     | 2,861 | 0.0000%   | 68.10 ms      |
-| Italian 24L         | L4H0+L15H12 | 329     | 2,871 | 0.0000%   | 97.57 ms      |
-| Portuguese          | L3H14       | 283     | 2,411 | 0.0000%   | 59.90 ms      |
-| Portuguese 24L      | L3H14+L15H9 | 311     | 2,633 | 0.0000%   | 110.30 ms     |
-| Spanish             | L2H3        | 246     | 2,303 | 0.0434%   | 88.47 ms      |
-| Spanish 24L         | L6H9        | 291     | 2,574 | 0.0000%   | 74.82 ms      |
+All official Pocket TTS checkpoints are supported, but accuracy differs between them. Selection results, MAE is measured against CrisperWhisper 2.0 medium
+| Checkpoint | Heads | Skip samples | Skip words | Skip rate | MAE samples | MAE words | Start/end MAE |
+|---|---|---:|---:|---:|---:|---:|---:|
+| Dutch | L3H14+L4H5+L5H4 | 1500 | 14,470 | 0.0207% | 500 | 4,646 | 74.27 ms |
+| Dutch 24L | L17H13+L17H11 | 1500 | 14,548 | 0.0069% | 500 | 4,740 | 71.84 ms |
+| English | L3H8+L2H0 | 1500 | 14,520 | 0.0620% | 500 | 4,819 | 51.23 ms |
+| English 2026-01 | L3H8+L2H0 | 1500 | 14,577 | 0.0480% | 500 | 4,796 | 52.21 ms |
+| English 2026-04 | L3H8+L2H0 | 1500 | 14,485 | 0.1243% | 500 | 4,748 | 42.99 ms |
+| English 2026-04 24L | L14H10+L17H11+L15H4 | 1500 | 14,501 | 0.0345% | 500 | 4,779 | 38.01 ms |
+| English 2026-09 | L3H8+L2H0 | 1500 | 14,520 | 0.0620% | 500 | 4,819 | 51.23 ms |
+| English 2026-09 24L | L14H10+L17H11+L15H4 | 1500 | 14,522 | 0.0551% | 500 | 4,834 | 46.01 ms |
+| English Drifting 26-09 | L2H15 | 1500 | 14,525 | 0.0000% | 500 | 4,811 | 39.08 ms |
+| French | L3H9 | 1500 | 14,294 | 0.0000% | 500 | 4,703 | 51.33 ms |
+| French 24L | L17H13+L20H12+L17H11+L18H5 | 1500 | 14,378 | 0.0904% | 500 | 4,792 | 50.99 ms |
+| German | L3H14+L2H0 | 1500 | 14,877 | 0.9209% | 500 | 4,682 | 44.81 ms |
+| German 24L | L17H11+L15H4 | 1500 | 14,831 | 0.6338% | 500 | 4,822 | 38.64 ms |
+| Italian | L3H9+L4H5+L3H14+L3H0 | 1500 | 14,524 | 0.0000% | 500 | 4,798 | 67.67 ms |
+| Italian 24L | L17H13+L20H12+L17H11 | 1500 | 14,457 | 0.0069% | 500 | 4,767 | 65.54 ms |
+| Portuguese | L3H9+L4H2+L4H5+L3H10 | 1500 | 14,774 | 0.5076% | 500 | 4,675 | 72.55 ms |
+| Portuguese 24L | L17H13+L18H1+L20H12 | 1500 | 14,673 | 0.0886% | 500 | 4,696 | 71.98 ms |
+| Spanish | L3H9+L3H14+L4H5 | 1500 | 14,775 | 0.0000% | 500 | 4,797 | 68.80 ms |
+| Spanish 24L | L17H13+L17H11+L18H1 | 1500 | 14,756 | 0.0542% | 500 | 4,783 | 66.92 ms |
 
 # About Pocket TTS
 

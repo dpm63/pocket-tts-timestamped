@@ -6,6 +6,8 @@ weights_path_without_voice_cloning: hf://kyutai/pocket-tts-without-voice-cloning
 timestamp_heads:
 - layer: 3
   head: 8
+- layer: 2
+  head: 0
 # Human evals preferred this model at 0.3 (equal WER/similarity/speech rate).
 default_temperature: 0.3
 
