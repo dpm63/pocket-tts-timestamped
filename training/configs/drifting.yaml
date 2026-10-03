@@ -6,7 +6,7 @@
 # Keep the learning rate constant. UTMOS on LibriSpeech goes from ~3.5 at 50k
 # steps to ~4.25 at 400k, and in our runs annealing the learning rate before
 # that jump stopped it.
-model_config: pocket_tts/config/english.yaml
+model_config: pocket_tts_timestamped/config/english.yaml
 model_overrides:
   flow_lm.transformer.num_layers: 24
 start_from_pretrained: false
