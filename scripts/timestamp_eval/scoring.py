@@ -60,13 +60,10 @@ def candidates(
 
 
 def rank(
-    result: dict[str, Any],
-    skip_penalty: float = 10.0,
-    head_penalty: float = 0.5,
-    skip_limit: float = 0.5,
+    result: dict[str, Any], skip_penalty: float = 10.0, head_penalty: float = 0.5
 ) -> dict[str, Any]:
-    if min(skip_penalty, head_penalty, skip_limit) < 0:
-        raise ValueError("Penalties and skip limit must be non-negative")
+    if min(skip_penalty, head_penalty) < 0:
+        raise ValueError("Penalties must be non-negative")
     rows = []
     for original in result["rows"]:
         row = {**original}
@@ -77,7 +74,7 @@ def rank(
             + skip_penalty * 100 * row["skip_rate"]
             + head_penalty * len(row["heads"])
         )
-        row["eligible"] = row["mae_ms"] is not None and row["skip_rate"] * 100 <= skip_limit
+        row["eligible"] = row["mae_ms"] is not None
         rows.append(row)
     best_mae = sorted(rows, key=mae_key)
     eligible = sorted(
@@ -92,22 +89,21 @@ def rank(
         "parameters": {
             "skip_penalty_ms_per_percentage_point": skip_penalty,
             "head_penalty_ms": head_penalty,
-            "skip_limit_percentage": skip_limit,
         },
-        "eligible_candidates": len(eligible),
+        "scored_candidates": len(eligible),
     }
 
 
 def table(rows: list[dict[str, Any]]) -> list[str]:
     lines = [
-        "| Heads | MAE | Skipped/total words | Skip rate | Score | Eligible |",
-        "|---|---:|---:|---:|---:|---|",
+        "| Heads | MAE | Skipped/total words | Skip rate | Score |",
+        "|---|---:|---:|---:|---:|",
     ]
     for row in rows:
         mae = "n/a" if row["mae_ms"] is None else f"{row['mae_ms']:.2f} ms"
         score = "n/a" if row["score_ms"] is None else f"{row['score_ms']:.2f} ms"
         lines.append(
-            f"| {head_label(row['heads'])} | {mae} | {row['skipped_words']}/{row['skip_words']} | {100 * row['skip_rate']:.4f}% | {score} | {'yes' if row.get('eligible') else 'no'} |"
+            f"| {head_label(row['heads'])} | {mae} | {row['skipped_words']}/{row['skip_words']} | {100 * row['skip_rate']:.4f}% | {score} |"
         )
     return lines
 
@@ -122,12 +118,12 @@ def report(result: dict[str, Any], scoring: dict[str, Any]) -> str:
         "",
         f"Aliases: {', '.join(a['id'] for a in result['aliases'])}.",
         "",
-        f"{scoring['eligible_candidates']} candidates pass the skip gate.",
+        f"{scoring['scored_candidates']} candidates have a measured MAE and are scored without a skip-rate cutoff.",
     ]
     if scoring["winner"] is None:
         lines += [
             "",
-            "**No eligible candidate. Preserve the configured heads; manual review required.**",
+            "**No candidate has a measured MAE. Preserve the configured heads; manual review required.**",
         ]
     else:
         lines += ["", f"Selected: **{head_label(scoring['winner']['heads'])}**."]
@@ -147,7 +143,7 @@ def report(result: dict[str, Any], scoring: dict[str, Any]) -> str:
         lines.append(f"| {alias['id']} | {label} | {mae} | {skip} |")
     for title, key in [
         ("Five best by MAE", "best_mae"),
-        ("Five best by score (eligible)", "best_score"),
+        ("Five best by score", "best_score"),
         ("Five best with zero skips, by MAE", "best_zero_skip"),
     ]:
         lines += ["", f"### {title}", "", *table(scoring[key])]

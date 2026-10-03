@@ -30,17 +30,18 @@ def row(heads: list[list[int]], mae: float, skipped: int = 0) -> dict[str, Any]:
     )
 
 
-def test_penalty_units_skip_gate_and_rescoring_preserve_raw_metrics() -> None:
-    raw = {"rows": [row([[0, 0]], 50, 1), row([[0, 1], [1, 0]], 49.6, 0), row([[0, 2]], 30, 6)]}
+def test_penalty_units_without_skip_gate_and_rescoring_preserve_raw_metrics() -> None:
+    raw = {"rows": [row([[0, 0]], 50, 1), row([[0, 1], [1, 0]], 49.6, 0), row([[0, 2]], 45, 6)]}
     original = repr(raw)
     scoring = rank(raw)
     assert scoring["winner"]["heads"] == [[0, 1], [1, 0]]
     assert scoring["winner"]["score_ms"] == 50.6
-    assert scoring["best_mae"][0]["eligible"] is False
+    assert scoring["best_mae"][0]["eligible"] is True
     changed = rank(raw, skip_penalty=0, head_penalty=2)
-    assert changed["winner"]["heads"] == [[0, 0]]
+    assert changed["winner"]["heads"] == [[0, 2]]
     assert repr(raw) == original
-    assert rank({"rows": [row([[0, 0]], 10, 6)]})["winner"] is None
+    assert rank({"rows": [row([[0, 0]], 10, 6)]})["winner"]["heads"] == [[0, 0]]
+    assert rank({"rows": [row([[0, 0]], 10, 900)]})["winner"] is not None
     with pytest.raises(ValueError):
         rank(raw, head_penalty=-1)
 
@@ -97,7 +98,7 @@ def test_config_patch_preserves_unrelated_yaml_and_supports_unconfigured_models(
     ]
 
 
-def test_readme_patch_separates_cohorts_and_retains_legacy_reference() -> None:
+def test_readme_patch_separates_cohorts_and_uses_shared_reference() -> None:
     text = "Evaluation results, MAE is measured against CrisperWhisper 2.0 large:\n| Checkpoint | Head | Samples | Words | Skip rate | Start/end MAE |\n|---|---|---|---|---|---|\n| English 2026-09 | L3H8 | 438 | 3,903 | 0% | 60 ms |\n| German | L3H6 | 309 | 2,610 | 0% | 64 ms |\n\n# Other section\n"
     candidate = row([[1, 2]], 12)
     output = update_readme(
@@ -111,8 +112,10 @@ def test_readme_patch_separates_cohorts_and_retains_legacy_reference() -> None:
     )
     assert "1500 | 1,000 |" in output
     assert "500 | 100 |" in output
-    assert "Medium CT2 float32" in output
-    assert "Large (legacy)" in output
+    assert "Selection results, MAE is measured against CrisperWhisper 2.0 medium" in output
+    assert "Reference |" not in output
+    assert "Large (legacy)" not in output
+    assert update_readme(output, {}) == output
     assert output.endswith("# Other section\n")
 
 
@@ -326,7 +329,6 @@ def test_rescore_plan_uses_saved_metrics_and_schedules_no_workers(
             publish=False,
             skip_penalty=20,
             head_penalty=1,
-            skip_limit=0.5,
         )
     )
     rescored = read(tmp_path / "plan.json")
@@ -413,3 +415,13 @@ def test_capture_trims_non_emitted_eos_frame_from_each_chunk(tmp_path: Path) -> 
     with np.load(tmp_path / "units.npz") as data:
         assert data["scores_0"].shape[1] == data["scores_1"].shape[1] == 1
     np.testing.assert_allclose(replay(tmp_path, [[[0, 0]]])[0], [[0, 0.08], [0.08, 0.16]])
+
+
+@pytest.mark.parametrize("dash", ["–", "—"])
+def test_german_sampling_excludes_dashes_but_other_languages_keep_them(dash: str) -> None:
+    from scripts.timestamp_eval.sampling import clean
+
+    assert not clean(f"Heute fährt Tom {dash} nach Berlin.", "deu")
+    assert clean("Heute fährt Tom - nach Berlin.", "deu")
+    assert clean(f"Today Tom travels {dash} to Berlin.", "eng")
+    assert clean(f"Tom voyage {dash} vers Berlin.", "fra")

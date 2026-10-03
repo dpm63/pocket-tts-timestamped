@@ -15,9 +15,10 @@ from scripts.timestamp_eval.common import lexical_words, read, write
 BANDS = ((4, 7), (8, 12), (13, 18))
 
 
-def clean(text: str) -> bool:
+def clean(text: str, language: str = "") -> bool:
     return (
         bool(lexical_words(text))
+        and not (language == "deu" and any(c in text for c in "–—"))
         and not any(c.isdigit() for c in text)
         and not any(c in text for c in "@/\\")
         and all(not c.isalpha() or unicodedata.name(c, "").startswith("LATIN") for c in text)
@@ -50,7 +51,7 @@ def fetch(language: str, count: int, excluded: set[str], seed: int) -> list[list
                 key = str(sentence["id"])
                 if (
                     key not in excluded
-                    and clean(text)
+                    and clean(text, language)
                     and minimum <= len(lexical_words(text)) <= maximum
                 ):
                     accepted[key] = {"sentence_id": key, "text": text, "band": band}

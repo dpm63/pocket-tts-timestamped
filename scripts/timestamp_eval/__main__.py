@@ -24,7 +24,6 @@ def main() -> None:
     parser.add_argument("--mae-samples", type=int, default=500)
     parser.add_argument("--skip-penalty", type=float, default=10.0)
     parser.add_argument("--head-penalty", type=float, default=0.5)
-    parser.add_argument("--skip-limit", type=float, default=0.5)
     parser.add_argument("--budget-seconds", type=int, default=18000)
     args = parser.parse_args()
     if args.stage == "publish":

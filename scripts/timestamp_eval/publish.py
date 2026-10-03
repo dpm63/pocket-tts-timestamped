@@ -56,8 +56,8 @@ def update_readme(text: str, updates: dict[str, dict[str, Any]]) -> str:
         key = columns[0].casefold().replace(" ", "_")
         if len(columns) == 6:
             name, heads, samples, words, skip, mae = columns
-            columns = [name, heads, samples, words, skip, samples, words, mae, "Large (legacy)"]
-        records[key] = columns
+            columns = [name, heads, samples, words, skip, samples, words, mae]
+        records[key] = columns[:8]
     for model_id, row in updates.items():
         result = row["result"]
         candidate = row["candidate"]
@@ -70,19 +70,22 @@ def update_readme(text: str, updates: dict[str, dict[str, Any]]) -> str:
             str(result["mae_samples"]),
             f"{candidate['mae_words']:,}",
             "n/a" if candidate["mae_ms"] is None else f"{candidate['mae_ms']:.2f} ms",
-            "Medium CT2 float32",
         ]
     header = [
-        "| Checkpoint | Heads | Skip samples | Skip words | Skip rate | MAE samples | MAE words | Start/end MAE | Reference |",
-        "|---|---|---:|---:|---:|---:|---:|---:|---|",
+        "| Checkpoint | Heads | Skip samples | Skip words | Skip rate | MAE samples | MAE words | Start/end MAE |",
+        "|---|---|---:|---:|---:|---:|---:|---:|",
     ]
     table = "\n".join(
         header + ["| " + " | ".join(columns) + " |" for _, columns in sorted(records.items())]
     )
     text = text[:start] + table + text[end:]
-    old = "Evaluation results, MAE is measured against CrisperWhisper 2.0 large:"
-    replacement = "MAE is the mean absolute start/end error against the reference shown below, on strictly matching transcriptions. Skip rate uses all samples in the separate skip cohort. New head selections use these evaluation samples; no separate validation set is collected. Legacy results used Large and a shared cohort.\n"
-    return text.replace(old, replacement)
+    replacement = "All official Pocket TTS checkpoints are supported, but accuracy differs between them. Selection results, MAE is measured against CrisperWhisper 2.0 medium"
+    introduction = text.rfind("All official Pocket TTS checkpoints", 0, start)
+    if introduction < 0:
+        introduction = text.rfind("Evaluation results,", 0, start)
+    if introduction < 0:
+        raise ValueError("Cannot locate checkpoint table introduction")
+    return text[:introduction] + replacement + "\n" + text[start:]
 
 
 def command(*arguments: str) -> None:
@@ -132,8 +135,6 @@ def publish_run(args: argparse.Namespace) -> None:
             f"skip_penalty={plan['scoring']['skip_penalty']}",
             "-f",
             f"head_penalty={plan['scoring']['head_penalty']}",
-            "-f",
-            f"skip_limit={plan['scoring']['skip_limit']}",
         )
         print("Continuation dispatched for " + ", ".join(i["id"] for i in pending), flush=True)
         return
@@ -149,9 +150,9 @@ def publish_run(args: argparse.Namespace) -> None:
         "",
         f"Reference revision: `{plan['reference']['revision']}`.",
         "",
-        f"Score: MAE_ms + {plan['scoring']['skip_penalty']} × skip_percentage + {plan['scoring']['head_penalty']} × head_count. Reject skip rates above {plan['scoring']['skip_limit']}%.",
+        f"Score: MAE_ms + {plan['scoring']['skip_penalty']} × skip_percentage + {plan['scoring']['head_penalty']} × head_count. No skip-rate eligibility cutoff.",
         "",
-        "Individual heads were ranked by raw MAE before applying a skip gate to combinations. The search tests all groups of 1–5 from the top ten, all individual heads, and existing configurations. Voices, length bands, and seeds were frozen before transcription; MAE uses the first matching clips in that order.",
+        "Individual heads were ranked by raw MAE without a skip-rate eligibility cutoff. The search tests all groups of 1–5 from the top ten, all individual heads, and existing configurations. Voices, length bands, and seeds were frozen before transcription; MAE uses the first matching clips in that order.",
         "",
         "MAE is measured on the selection cohort, without separately collected validation. Zero observed skips do not establish a zero population rate.",
         "",

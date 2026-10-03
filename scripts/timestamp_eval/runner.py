@@ -186,11 +186,7 @@ def plan_run(args: argparse.Namespace) -> None:
             "active": active,
             "cached": cached,
         }
-    plan["scoring"] = {
-        "skip_penalty": args.skip_penalty,
-        "head_penalty": args.head_penalty,
-        "skip_limit": args.skip_limit,
-    }
+    plan["scoring"] = {"skip_penalty": args.skip_penalty, "head_penalty": args.head_penalty}
     write(work / "plan.json", plan)
     output(
         "matrix",

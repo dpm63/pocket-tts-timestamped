@@ -46,10 +46,6 @@ on:
         description: Milliseconds per head
         type: string
         default: '0.5'
-      skip_limit:
-        description: Maximum eligible word-skip percentage
-        type: string
-        default: '0.5'
 
 permissions:
   contents: read
@@ -92,9 +88,8 @@ jobs:
           RESUME: ${{ inputs.resume_run }}
           SKIP_PENALTY: ${{ inputs.skip_penalty }}
           HEAD_PENALTY: ${{ inputs.head_penalty }}
-          SKIP_LIMIT: ${{ inputs.skip_limit }}
         run: |
-          args=(--skip-penalty "${SKIP_PENALTY:-10}" --head-penalty "${HEAD_PENALTY:-0.5}" --skip-limit "${SKIP_LIMIT:-0.5}")
+          args=(--skip-penalty "${SKIP_PENALTY:-10}" --head-penalty "${HEAD_PENALTY:-0.5}")
           args+=(--skip-samples "${SKIP_SAMPLES:-1500}" --mae-samples "${MAE_SAMPLES:-500}")
           if [ "$FORCE" = true ]; then args+=(--force); fi
           if [ "$GITHUB_EVENT_NAME" = push ] || [ "$PUBLISH" = true ]; then args+=(--publish); fi
