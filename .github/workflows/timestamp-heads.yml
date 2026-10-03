@@ -14,6 +14,10 @@ on:
         description: Evaluate selected checkpoints even when their hashes are known
         type: boolean
         default: false
+      force_models:
+        description: Comma-separated checkpoints to regenerate while allowing hash reuse for others
+        type: string
+        default: ''
       models:
         description: Comma-separated config names; blank selects all configs
         type: string
@@ -81,6 +85,7 @@ jobs:
           BEFORE: ${{ github.event.before }}
           FORCE: ${{ inputs.force }}
           MODELS: ${{ inputs.models }}
+          FORCE_MODELS: ${{ inputs.force_models }}
           PUBLISH: ${{ inputs.publish }}
           SKIP_SAMPLES: ${{ inputs.skip_samples }}
           MAE_SAMPLES: ${{ inputs.mae_samples }}
@@ -94,6 +99,7 @@ jobs:
           if [ "$FORCE" = true ]; then args+=(--force); fi
           if [ "$GITHUB_EVENT_NAME" = push ] || [ "$PUBLISH" = true ]; then args+=(--publish); fi
           if [ -n "$MODELS" ]; then args+=(--models "$MODELS"); fi
+          if [ -n "$FORCE_MODELS" ]; then args+=(--force-models "$FORCE_MODELS"); fi
           if [ -n "$BEFORE" ]; then args+=(--before "$BEFORE"); fi
           if [ -n "$RESCORE" ]; then args+=(--rescore-run "$RESCORE"); fi
           if [ -n "$RESUME" ]; then args+=(--resume-run "$RESUME"); fi

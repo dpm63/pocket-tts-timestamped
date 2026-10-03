@@ -425,3 +425,81 @@ def test_german_sampling_excludes_dashes_but_other_languages_keep_them(dash: str
     assert clean("Heute fährt Tom - nach Berlin.", "deu")
     assert clean(f"Today Tom travels {dash} to Berlin.", "eng")
     assert clean(f"Tom voyage {dash} vers Berlin.", "fra")
+
+
+def test_targeted_force_regenerates_only_requested_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from scripts.timestamp_eval import runner
+    from scripts.timestamp_eval.common import PROTOCOL, REFERENCE, read, write
+
+    items: list[dict[str, Any]] = [
+        {
+            "id": name,
+            "config_path": f"{name}.yaml",
+            "config": {"weights_path": name},
+            "baseline": [],
+            "voices": [voice],
+            "checkpoint_sha256": digest * 64,
+            "effective_weights": name,
+            "tatoeba_language": lang,
+        }
+        for name, voice, digest, lang in [
+            ("english", "alba", "a", "eng"),
+            ("german_24l", "juergen", "b", "deu"),
+        ]
+    ]
+    monkeypatch.setattr(runner, "discover", lambda path: items)
+    monkeypatch.setattr(runner, "resolve_checkpoint", lambda item: item)
+    monkeypatch.setattr(runner, "git", lambda *args: "base")
+    monkeypatch.setattr(runner.Artifacts, "__init__", lambda self: None)
+    monkeypatch.setattr(
+        runner.Artifacts,
+        "listing",
+        lambda self: [
+            {"name": f"timestamp-v{PROTOCOL}-{i['checkpoint_sha256'][:16]}"} for i in items
+        ],
+    )
+    downloads = []
+
+    def download(self: Artifacts, artifact: dict[str, Any], destination: Path) -> None:
+        downloads.append(artifact["name"])
+        write(
+            destination / "result.json",
+            {
+                "checkpoint_sha256": "a" * 64,
+                "skip_samples": 1500,
+                "mae_samples": 500,
+                "reference": REFERENCE,
+            },
+        )
+
+    monkeypatch.setattr(runner.Artifacts, "download", download)
+    monkeypatch.setattr(
+        "huggingface_hub.HfApi.list_repo_files",
+        lambda *args, **kwargs: ["languages/german_24l/embeddings/juergen.safetensors"],
+    )
+    monkeypatch.setattr(runner, "extend", lambda *args: [])
+    monkeypatch.setenv("GITHUB_RUN_ID", "2")
+    monkeypatch.delenv("GITHUB_OUTPUT", raising=False)
+    runner.plan_run(
+        argparse.Namespace(
+            work=str(tmp_path),
+            resume_run=0,
+            rescore_run=0,
+            skip_samples=1500,
+            mae_samples=500,
+            shards=8,
+            publish=True,
+            models="english,german_24l",
+            force=False,
+            force_models="german_24l",
+            before="",
+            skip_penalty=10,
+            head_penalty=0.5,
+        )
+    )
+    plan = read(tmp_path / "plan.json")
+    assert [i["id"] for i in plan["active"]] == ["german_24l"]
+    assert [i["item"]["id"] for i in plan["cached"]] == ["english"]
+    assert downloads == [f"timestamp-v{PROTOCOL}-{'a' * 16}"]

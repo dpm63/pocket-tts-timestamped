@@ -86,14 +86,15 @@ def plan_run(args: argparse.Namespace) -> None:
             raise ValueError("Reduced-sample test runs cannot publish configurations")
         all_items = discover(Path("pocket_tts_timestamped/config"))
         selected = set(args.models.split(",")) if args.models else set()
-        if selected and selected - {item["id"] for item in all_items}:
+        forced = set(args.force_models.split(",")) if args.force_models else set()
+        if (selected | forced) - {item["id"] for item in all_items}:
             raise ValueError("Unknown checkpoint selector")
         before = args.before
         wanted = []
         for item in all_items:
-            if selected and item["id"] not in selected:
+            if selected and item["id"] not in selected | forced:
                 continue
-            if args.force or selected or not before or set(before) == {"0"}:
+            if args.force or item["id"] in forced or selected or not before or set(before) == {"0"}:
                 wanted.append(item)
                 continue
             try:
@@ -138,7 +139,7 @@ def plan_run(args: argparse.Namespace) -> None:
             reusable = next(
                 (a for a in available if a["name"] == f"timestamp-v{PROTOCOL}-{item['key']}"), None
             )
-            if reusable:
+            if reusable and not any(alias["id"] in forced for alias in item["aliases"]):
                 target = work / "cache" / item["key"]
                 artifacts.download(reusable, target)
                 result = read(target / "result.json")

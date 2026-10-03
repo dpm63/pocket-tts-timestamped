@@ -16,6 +16,7 @@ def main() -> None:
     parser.add_argument("--shards", type=int, default=8)
     parser.add_argument("--models", default="")
     parser.add_argument("--force", action="store_true")
+    parser.add_argument("--force-models", default="")
     parser.add_argument("--publish", action="store_true")
     parser.add_argument("--before", default="")
     parser.add_argument("--resume-run", type=int, default=0)

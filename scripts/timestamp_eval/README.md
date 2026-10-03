@@ -17,6 +17,7 @@ No separate validation samples are collected. MAE is explicitly a selection-coho
 Use **Actions → Evaluate checkpoint timestamp heads → Run workflow**:
 
 - **Initial/full rerun:** `force=true`, leave `models` blank. This evaluates every available config, deduplicating identical checkpoint content.
+- **Force only selected checkpoints:** set `force_models=german_24l`; other selected checkpoints still reuse matching hashes. This can refresh a sampling policy without forcing every checkpoint.
 - **Selected checkpoint:** set `models=english_2026-09` (or comma-separated config names).
 - **Smoke test:** `models=english_2026-09`, `force=true`, `publish=false`, `skip_samples=60`, `mae_samples=20`. Reduced cohorts cannot publish configurations or enter the production reuse cache.
 - **Rescore:** set `rescore_run` to a completed run ID and change `skip_penalty`, `head_penalty`. This reads saved metrics; generation, transcription, and alignment jobs are skipped. Set `publish=false` for a report-only comparison.
