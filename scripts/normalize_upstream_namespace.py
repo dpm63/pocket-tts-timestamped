@@ -73,6 +73,8 @@ def _iter_text_files() -> list[Path]:
                 if path.is_file()
                 and path.suffix in TEXT_SUFFIXES
                 and path.resolve() != NORMALIZER_PATH
+                # The regression fixtures intentionally contain upstream imports.
+                and path.resolve() != ROOT / "tests" / "test_upstream_namespace.py"
             )
     return sorted(set(files))
 

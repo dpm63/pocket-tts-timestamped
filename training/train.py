@@ -44,6 +44,7 @@ from training.train_utils import (
     _compile_models,
     add_file_logging,
     build_optimizer,
+    check_manifest_sizes,
     ensure_train_latents,
     git_commit,
     lr_at,
@@ -109,6 +110,7 @@ def setup(config_path: str) -> Run:
             "Validation must encode audio directly so its metrics stay exact and "
             "comparable; point valid_jsonl at the original manifest."
         )
+    check_manifest_sizes(args, world_size)
     if rank == 0:
         save_args(args, run_dir / "args.yaml")
 

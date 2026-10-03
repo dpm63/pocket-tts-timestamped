@@ -102,7 +102,7 @@ Supports Python 3.10, 3.11, 3.12, 3.13 and 3.14. Requires PyTorch 2.5+. Does not
 * Uses only 2 CPU cores
 * Python API and CLI
 * Voice cloning
-* Multi-language support: english, french, german, portuguese, italian, spanish
+* Multi-language support: english, french, german, portuguese, italian, spanish, dutch
 * Can handle infinitely long text inputs
 * [Can run on client-side in the browser](#in-browser-implementations)
 
@@ -408,7 +408,7 @@ uvx --from pocket-tts-timestamped pocket-tts-timestamped generate \
 <summary><a href="https://huggingface.co/seastar105/pocket-tts-korean-300m">Pocket TTS Korean 300M</a> by <a href="https://huggingface.co/seastar105">@seastar105</a></summary>
 
 ```bash
-uvx pocket-tts generate \
+uvx pocket-tts-timestamped generate \
   --config hf://seastar105/pocket-tts-korean-300m/korean.yaml@df328c817a02866f20a6f74e5183e0a1fc6f6435 \
   --text "안녕하세요. 한국어 음성 합성 모델입니다."
 ```
@@ -418,7 +418,7 @@ uvx pocket-tts generate \
 <summary><a href="https://huggingface.co/mehdi-hf/pocket-tts-farsi">Pocket TTS Persian (Farsi)</a> by @mallahyari</summary>
 
 ```bash
-uvx --with soundfile pocket-tts generate --config hf://mehdi-hf/pocket-tts-farsi/farsi.yaml@3c59d06b3177b21c5cd0df9e9e3e899f4d361c1c \
+uvx --with soundfile pocket-tts-timestamped generate --config hf://mehdi-hf/pocket-tts-farsi/farsi.yaml@3c59d06b3177b21c5cd0df9e9e3e899f4d361c1c \
     --voice hf://mehdi-hf/pocket-tts-farsi/example_voice.wav --text "سلام، حال شما چطور است؟"
 ```
 </details>
@@ -427,7 +427,7 @@ uvx --with soundfile pocket-tts generate --config hf://mehdi-hf/pocket-tts-farsi
 <summary><a href="https://huggingface.co/anak10thn/pocket-tts-indonesian">Pocket TTS Indonesian</a> by <a href="https://huggingface.co/anak10thn">@anak10thn</a>, 6 layers</summary>
 
 ```bash
-uvx pocket-tts generate \
+uvx pocket-tts-timestamped generate \
   --config hf://anak10thn/pocket-tts-indonesian/indonesian_6l.yaml@6196fe14c6c2108332c16d33c864c8901c044aaa \
   --text "Selamat pagi. Ini model sintesis suara bahasa Indonesia."
 ```
@@ -437,7 +437,7 @@ uvx pocket-tts generate \
 <summary><a href="https://huggingface.co/cbentes/pocket-tts-estonian">Pocket TTS Estonian</a> by @cbentes</summary>
 
 ```bash
-uvx pocket-tts generate \
+uvx pocket-tts-timestamped generate \
   --config hf://cbentes/pocket-tts-estonian/estonian.yaml@8934022f1befb3dc568351e3b88e48a9edb94d7d \
   --voice hf://cbentes/pocket-tts-estonian/voices/et_f_reporter.wav@8934022f1befb3dc568351e3b88e48a9edb94d7d \
   --text "Tere! Mina olen eesti keele kõnesüntesaator ja töötan tavalises arvutis kiiremini kui reaalajas."
@@ -448,7 +448,7 @@ uvx pocket-tts generate \
 <summary><a href="https://huggingface.co/EryriLabs/pocket-tts-cymraeg">Pocket TTS Cymraeg (Welsh)</a> by <a href="https://huggingface.co/EryriLabs">EryriLabs</a>, 24 layers</summary>
 
 ```bash
-uvx pocket-tts generate \
+uvx pocket-tts-timestamped generate \
   --config hf://EryriLabs/pocket-tts-cymraeg/config.yaml@1f23b3a8d1706b24a2faf3c77075a223ed69f57c \
   --text "Mae'r tywydd yn braf yng Nghymru heddiw."
 ```
@@ -458,10 +458,21 @@ uvx pocket-tts generate \
 <summary><a href="https://huggingface.co/shefowl/pocket-tts-polish-6l">Pocket TTS Polish</a> by <a href="https://huggingface.co/shefowl">@shefowl</a>, 6 layers</summary>
 
 ```bash
-uvx pocket-tts generate \
+uvx pocket-tts-timestamped generate \
   --config hf://shefowl/pocket-tts-polish-6l/config.yaml@a8630f2a39055d3e5a91acb7922e31bd0c506cfe \
   --voice hf://shefowl/pocket-tts-polish-6l/reference.wav@a8630f2a39055d3e5a91acb7922e31bd0c506cfe \
   --text "Dzień dobry. Nazywam się Krzysztof Wiśniewski i mówię po polsku."
+```
+</details>
+
+<details>
+<summary><a href="https://huggingface.co/myned-ai/pocket-tts-greek">Pocket TTS Greek (Ελληνικά)</a> by <a href="https://huggingface.co/myned-ai">Myned AI</a>, 6 layers</summary>
+
+```bash
+uvx pocket-tts-timestamped generate \
+  --config hf://myned-ai/pocket-tts-greek/greek.yaml@c578b65949df101ac352e84ac5c236206e5bb348 \
+  --voice hf://myned-ai/pocket-tts-greek/voices/eleni.wav@c578b65949df101ac352e84ac5c236206e5bb348 \
+  --text "Καλημέρα! Θέλετε να κλείσουμε ένα ραντεβού για αύριο;"
 ```
 </details>
 
@@ -488,6 +499,7 @@ Want your model here? Head to the [training Readme](https://github.com/kyutai-la
 - [seshat-tts](https://github.com/scriptriva/seshat-tts) by @scriptriva - Accessibility tool that provides real-time audio synthesis for games and apps. It also features a voice manager capable of cloning voices based on user presets.
 - [LocalVocal.ai](https://localvocal.ai) by @joshwhiton - Fully local conversational voice-harness for Macs with Apple Silicon. Includes voice-activity & turn detection, dictation, voice cloning, CLI to talk to Claude, Codex... and more.
 - [Libratory](https://github.com/subev/libratory) by @subev - Turns PDFs into read-along audiobooks with the narration highlighted on the printed page; Pocket TTS is one of its local narrators, with voice cloning from the picker.
+- [ToBe SAID Android](https://play.google.com/store/apps/details?id=ai.lookbe.tts), [iOS/Mac](https://apps.apple.com/us/app/tobe-said/id6801981584), [Windows](https://apps.microsoft.com/detail/9mtw9scqhggc) by @lookbe - Pocket TTS that integrate into OS system voice with low latency and realtime streaming. Support quick language addition by using only HuggingFace url.
 
 
 ## Prohibited use

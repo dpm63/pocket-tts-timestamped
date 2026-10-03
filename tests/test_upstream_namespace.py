@@ -1,4 +1,6 @@
-from scripts.normalize_upstream_namespace import _normalize_text
+from pathlib import Path
+
+from scripts.normalize_upstream_namespace import _iter_text_files, _normalize_text
 
 
 def test_upstream_namespace_normalization_is_idempotent() -> None:
@@ -28,3 +30,7 @@ cache_dir = Path.home() / ".cache" / "pocket_tts"
 """
 
     assert _normalize_text(shared_resources) == shared_resources
+
+
+def test_normalizer_preserves_its_upstream_import_fixtures() -> None:
+    assert Path(__file__).resolve() not in _iter_text_files()
