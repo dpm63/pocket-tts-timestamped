@@ -1,0 +1,4 @@
+numba==0.67.0
+pyyaml>=6
+crisperwhisper[ct2,convert]==2.0.3
+ctranslate2-crisperwhisper==4.7.1.post3

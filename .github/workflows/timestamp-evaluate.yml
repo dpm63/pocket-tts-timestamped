@@ -1,0 +1,279 @@
+name: Evaluate one checkpoint
+
+on:
+  workflow_call:
+    inputs:
+      key:
+        type: string
+        required: true
+      model:
+        type: string
+        required: true
+      resume:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  GH_TOKEN: ${{ github.token }}
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+  OMP_NUM_THREADS: '4'
+  OPENBLAS_NUM_THREADS: '1'
+
+jobs:
+  capture:
+    if: ${{ !inputs.resume }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - run: uv pip install --python .venv/bin/python pyyaml numba==0.67.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: timestamp-plan
+          path: timestamp-work
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/units
+          key: timestamp-units-${{ github.run_id }}-${{ inputs.key }}-${{ matrix.shard }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/audio
+          key: timestamp-audio-${{ github.run_id }}-${{ inputs.key }}-${{ matrix.shard }}
+      - name: Generate audio and all-head unit scores
+        env:
+          KEY: ${{ inputs.key }}
+          SHARD: ${{ matrix.shard }}
+        run: .venv/bin/python -m scripts.timestamp_eval capture --key "$KEY" --shard "$SHARD"
+      - uses: actions/cache/save@v4
+        with:
+          path: timestamp-work/units
+          key: timestamp-units-${{ github.run_id }}-${{ inputs.key }}-${{ matrix.shard }}
+      - uses: actions/cache/save@v4
+        with:
+          path: timestamp-work/audio
+          key: timestamp-audio-${{ github.run_id }}-${{ inputs.key }}-${{ matrix.shard }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: timestamp-units-${{ inputs.key }}-${{ matrix.shard }}
+          path: timestamp-work/units
+          overwrite: true
+          if-no-files-found: ignore
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: timestamp-audio-${{ inputs.key }}-${{ matrix.shard }}
+          path: timestamp-work/audio
+          overwrite: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+  reference:
+    needs: capture
+    if: always() && (needs.capture.result == 'success' || inputs.resume)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 350
+    outputs:
+      complete: ${{ steps.reference.outputs.complete }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - run: uv pip install --python .venv/bin/python -r scripts/timestamp_eval/requirements.txt
+      - uses: actions/download-artifact@v4
+        with:
+          name: timestamp-plan
+          path: timestamp-work
+      - name: Read source run IDs
+        id: source
+        run: |
+          .venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.timestamp_eval.common import read
+          plan=read(Path('timestamp-work/plan.json'))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('capture='+str(plan['capture_run_id'])+'\n')
+              output.write('previous='+str(plan['previous_run_id'] or plan['run_id'])+'\n')
+          PY
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/audio
+          key: timestamp-audio-${{ steps.source.outputs.capture }}-${{ inputs.key }}-0
+          fail-on-cache-miss: false
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/audio
+          key: timestamp-audio-${{ steps.source.outputs.capture }}-${{ inputs.key }}-1
+          fail-on-cache-miss: false
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/audio
+          key: timestamp-audio-${{ steps.source.outputs.capture }}-${{ inputs.key }}-2
+          fail-on-cache-miss: false
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/audio
+          key: timestamp-audio-${{ steps.source.outputs.capture }}-${{ inputs.key }}-3
+          fail-on-cache-miss: false
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/audio
+          key: timestamp-audio-${{ steps.source.outputs.capture }}-${{ inputs.key }}-4
+          fail-on-cache-miss: false
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/audio
+          key: timestamp-audio-${{ steps.source.outputs.capture }}-${{ inputs.key }}-5
+          fail-on-cache-miss: false
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/audio
+          key: timestamp-audio-${{ steps.source.outputs.capture }}-${{ inputs.key }}-6
+          fail-on-cache-miss: false
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/audio
+          key: timestamp-audio-${{ steps.source.outputs.capture }}-${{ inputs.key }}-7
+          fail-on-cache-miss: false
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/extras
+          key: timestamp-extras-${{ steps.source.outputs.previous }}-${{ inputs.key }}
+      - name: Transcribe in order to the required number of matches
+        id: reference
+        env:
+          KEY: ${{ inputs.key }}
+        run: .venv/bin/python -m scripts.timestamp_eval reference --key "$KEY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: timestamp-reference-${{ inputs.key }}
+          path: timestamp-work/reference
+          overwrite: true
+          if-no-files-found: ignore
+          retention-days: 7
+      - uses: actions/cache/save@v4
+        if: steps.reference.outputs.has_extras == 'true'
+        with:
+          path: timestamp-work/extras
+          key: timestamp-extras-${{ github.run_id }}-${{ inputs.key }}
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: timestamp-extras-${{ inputs.key }}
+          path: timestamp-work/extras
+          overwrite: true
+          if-no-files-found: ignore
+          retention-days: 7
+
+  groups:
+    needs: reference
+    if: needs.reference.outputs.complete == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3, 4, 5, 6, 7]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - run: uv pip install --python .venv/bin/python pyyaml numba==0.67.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: timestamp-plan
+          path: timestamp-work
+      - uses: actions/download-artifact@v4
+        with:
+          name: timestamp-reference-${{ inputs.key }}
+          path: timestamp-work/reference
+      - name: Read source run IDs
+        id: source
+        run: |
+          .venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.timestamp_eval.common import read
+          plan=read(Path('timestamp-work/plan.json'))
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('capture='+str(plan['capture_run_id'])+'\n')
+              output.write('previous='+str(plan['previous_run_id'] or plan['run_id'])+'\n')
+          PY
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/units
+          key: timestamp-units-${{ steps.source.outputs.capture }}-${{ inputs.key }}-${{ matrix.shard }}
+      - uses: actions/cache/restore@v4
+        with:
+          path: timestamp-work/extras
+          key: timestamp-extras-${{ github.run_id }}-${{ inputs.key }}
+      - name: Replay head groups against both cohorts
+        env:
+          KEY: ${{ inputs.key }}
+          SHARD: ${{ matrix.shard }}
+        run: .venv/bin/python -m scripts.timestamp_eval groups --key "$KEY" --shard "$SHARD"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timestamp-groups-${{ inputs.key }}-${{ matrix.shard }}
+          path: timestamp-work/group-metrics
+          overwrite: true
+          retention-days: 7
+
+  collect:
+    permissions:
+      contents: read
+      actions: write
+    needs: [reference, groups]
+    if: needs.reference.outputs.complete == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - run: uv pip install --python .venv/bin/python pyyaml numba==0.67.0
+      - uses: actions/download-artifact@v4
+        with:
+          name: timestamp-plan
+          path: timestamp-work
+      - uses: actions/download-artifact@v4
+        with:
+          name: timestamp-reference-${{ inputs.key }}
+          path: timestamp-work/reference
+      - name: Verify complete cohort coverage and save raw metrics
+        env:
+          KEY: ${{ inputs.key }}
+        run: .venv/bin/python -m scripts.timestamp_eval collect --key "$KEY"
+      - name: Identify smoke or production artifact
+        id: artifact
+        env:
+          KEY: ${{ inputs.key }}
+        run: |
+          .venv/bin/python - <<'PY'
+          import os
+          from pathlib import Path
+          from scripts.timestamp_eval.common import read
+          plan=read(Path('timestamp-work/plan.json'))
+          prefix='timestamp-v1-' if plan['skip_samples']==1500 and plan['mae_samples']==500 else 'timestamp-smoke-v1-'
+          with open(os.environ['GITHUB_OUTPUT'],'a') as output:
+              output.write('name='+prefix+os.environ['KEY']+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.artifact.outputs.name }}
+          path: timestamp-work/result
+          overwrite: true
+          retention-days: 90

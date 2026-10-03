@@ -53,3 +53,13 @@ jobs:
     - name: Run pytest
       run: |
         uv run -p ${{ matrix.python-version }} pytest -v ./tests ./training/tests
+
+  timestamp-tooling:
+    runs-on: ubuntu-24.04
+    needs: pre-commit
+    steps:
+    - uses: actions/checkout@v4
+    - uses: astral-sh/setup-uv@v7
+    - run: uv sync --no-dev --python 3.11
+    - run: uv pip install --python .venv/bin/python pytest pyyaml numba==0.67.0
+    - run: .venv/bin/python -m pytest -q tests/test_timestamp_evaluation.py

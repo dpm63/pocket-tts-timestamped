@@ -1,0 +1,162 @@
+name: Evaluate checkpoint timestamp heads
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - pocket_tts_timestamped/config/**
+      - scripts/timestamp_eval/**
+      - .github/workflows/timestamp-heads.yml
+      - .github/workflows/timestamp-evaluate.yml
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Evaluate selected checkpoints even when their hashes are known
+        type: boolean
+        default: false
+      force_models:
+        description: Comma-separated checkpoints to regenerate while allowing hash reuse for others
+        type: string
+        default: ''
+      models:
+        description: Comma-separated config names; blank selects all configs
+        type: string
+        default: ''
+      publish:
+        description: Open or update a results PR (full cohorts only)
+        type: boolean
+        default: true
+      skip_samples:
+        description: Skip cohort size; reduce only for unpublished smoke tests
+        type: number
+        default: 1500
+      mae_samples:
+        description: Required strict transcription matches
+        type: number
+        default: 500
+      rescore_run:
+        description: Completed evaluation run ID; redo scoring without inference
+        type: string
+        default: ''
+      resume_run:
+        description: Incomplete evaluation run ID (continuations use this automatically)
+        type: string
+        default: ''
+      skip_penalty:
+        description: Milliseconds per skip percentage point
+        type: string
+        default: '10'
+      head_penalty:
+        description: Milliseconds per head
+        type: string
+        default: '0.5'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: timestamp-heads-${{ github.ref }}-evaluation
+  cancel-in-progress: false
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      active: ${{ steps.plan.outputs.active }}
+      resume: ${{ steps.plan.outputs.resume }}
+      changed: ${{ steps.plan.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - run: uv pip install --python .venv/bin/python pyyaml numba==0.67.0
+      - name: Plan hash reuse and freeze sampling
+        id: plan
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HF_TOKEN: ${{ secrets.HF_TOKEN }}
+          HF_HOME: ${{ runner.temp }}/timestamp-hf
+          TIMESTAMP_HASH_CACHE: ${{ runner.temp }}/timestamp-hf
+          BEFORE: ${{ github.event.before }}
+          FORCE: ${{ inputs.force }}
+          MODELS: ${{ inputs.models }}
+          FORCE_MODELS: ${{ inputs.force_models }}
+          PUBLISH: ${{ inputs.publish }}
+          SKIP_SAMPLES: ${{ inputs.skip_samples }}
+          MAE_SAMPLES: ${{ inputs.mae_samples }}
+          RESCORE: ${{ inputs.rescore_run }}
+          RESUME: ${{ inputs.resume_run }}
+          SKIP_PENALTY: ${{ inputs.skip_penalty }}
+          HEAD_PENALTY: ${{ inputs.head_penalty }}
+        run: |
+          args=(--skip-penalty "${SKIP_PENALTY:-10}" --head-penalty "${HEAD_PENALTY:-0.5}")
+          args+=(--skip-samples "${SKIP_SAMPLES:-1500}" --mae-samples "${MAE_SAMPLES:-500}")
+          if [ "$FORCE" = true ]; then args+=(--force); fi
+          if [ "$GITHUB_EVENT_NAME" = push ] || [ "$PUBLISH" = true ]; then args+=(--publish); fi
+          if [ -n "$MODELS" ]; then args+=(--models "$MODELS"); fi
+          if [ -n "$FORCE_MODELS" ]; then args+=(--force-models "$FORCE_MODELS"); fi
+          if [ -n "$BEFORE" ]; then args+=(--before "$BEFORE"); fi
+          if [ -n "$RESCORE" ]; then args+=(--rescore-run "$RESCORE"); fi
+          if [ -n "$RESUME" ]; then args+=(--resume-run "$RESUME"); fi
+          .venv/bin/python -m scripts.timestamp_eval plan "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: timestamp-plan
+          path: timestamp-work/plan.json
+          retention-days: 90
+
+  evaluate:
+    needs: plan
+    if: needs.plan.outputs.active == 'true'
+    permissions:
+      contents: read
+      actions: write
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    uses: ./.github/workflows/timestamp-evaluate.yml
+    with:
+      key: ${{ matrix.key }}
+      model: ${{ matrix.model }}
+      resume: ${{ needs.plan.outputs.resume == 'true' }}
+    secrets: inherit
+
+  publish:
+    needs: [plan, evaluate]
+    if: always() && needs.plan.result == 'success' && needs.plan.outputs.changed == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      actions: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - run: uv pip install --python .venv/bin/python pyyaml
+      - uses: actions/download-artifact@v4
+        with:
+          name: timestamp-plan
+          path: timestamp-work
+      - name: Publish results or dispatch the next bounded reference job
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: .venv/bin/python -m scripts.timestamp_eval publish
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: timestamp-report
+          path: |
+            timestamp-work/pr-body.md
+            timestamp-work/rescored.json
+          if-no-files-found: ignore
+          retention-days: 90
