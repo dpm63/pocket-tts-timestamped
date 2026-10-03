@@ -5,6 +5,10 @@ weights_path_without_voice_cloning: hf://kyutai/pocket-tts-without-voice-cloning
 timestamp_heads:
 - layer: 14
   head: 10
+- layer: 17
+  head: 11
+- layer: 15
+  head: 4
 
 default_temperature: 0.3
 flow_lm:

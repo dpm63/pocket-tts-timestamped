@@ -2,7 +2,13 @@ weights_path: hf://kyutai/pocket-tts/languages/portuguese/model.safetensors@2dd9
 weights_path_without_voice_cloning: hf://kyutai/pocket-tts-without-voice-cloning/languages/portuguese/model.safetensors@4e1e0a3e611c51c0b4ed8174fc10f32a54644303
 timestamp_heads:
 - layer: 3
-  head: 14
+  head: 9
+- layer: 4
+  head: 2
+- layer: 4
+  head: 5
+- layer: 3
+  head: 10
 
 replace_characters:
   '"': ''
