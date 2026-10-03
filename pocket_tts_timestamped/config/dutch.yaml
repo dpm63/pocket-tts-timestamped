@@ -16,12 +16,14 @@ replace_characters:
   ']': ''
 
 timestamp_heads:
-- layer: 3
-  head: 14
 - layer: 4
   head: 5
-- layer: 5
-  head: 4
+- layer: 3
+  head: 9
+- layer: 3
+  head: 14
+- layer: 2
+  head: 0
 
 flow_lm:
   insert_bos_before_voice: true
