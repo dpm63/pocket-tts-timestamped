@@ -38,19 +38,16 @@ def test_generate_audio_stream_uses_prepared_chunk_text(monkeypatch: pytest.Monk
     monkeypatch.setattr(
         tts_model_module, "split_into_best_sentences", fake_split_into_best_sentences
     )
-    model = cast(
-        TTSModel,
-        SimpleNamespace(
-            flow_lm=SimpleNamespace(conditioner=SimpleNamespace(tokenizer=object())),
-            model_recommended_frames_after_eos=None,
-            pad_with_spaces_for_short_inputs=True,
-            remove_semicolons=False,
-            append_terminal_punctuation=True,
-            capitalize_first_letter=True,
-            replace_characters={},
-            _generate_audio_stream_short_text=fake_generate_audio_stream_short_text,
-        ),
+    model = TTSModel(
+        flow_lm=cast(Any, SimpleNamespace(conditioner=SimpleNamespace(tokenizer=object()))),
+        temp=0.3,
+        sampler_decode_steps=1,
+        noise_clamp=None,
+        eos_threshold=-4,
+        config=cast(Any, None),
+        pad_with_spaces_for_short_inputs=True,
     )
+    model._generate_audio_stream_short_text = cast(Any, fake_generate_audio_stream_short_text)
 
     chunks = list(TTSModel.generate_audio_stream(model, {}, "hi"))
 

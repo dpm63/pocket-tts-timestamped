@@ -290,6 +290,8 @@ def test_closing_timestamp_generation_joins_workers_and_stops_state_mutation():
 
 def test_timestamp_decoder_passes_time_major_latent_to_mimi():
     class RecordingMimi(nn.Module):
+        frame_size = 4
+
         def __init__(self):
             super().__init__()
             self.decoded_latents = []
@@ -304,6 +306,7 @@ def test_timestamp_decoder_passes_time_major_latent_to_mimi():
     model = object.__new__(TTSModel)
     nn.Module.__init__(model)
     recording_mimi = RecordingMimi()
+    model.max_decoder_frames_per_call = 0
     model.mimi = recording_mimi  # ty: ignore[invalid-assignment]
     model.flow_lm = SimpleNamespace(  # ty: ignore[invalid-assignment]
         emb_std=2.0, emb_mean=1.0
@@ -503,7 +506,7 @@ def test_timestamp_generation_forwards_terminal_punctuation_setting(append_termi
         capitalize_first_letter=True,
         replace_characters={},
     )
-    prepare_text.assert_called_once_with("One", False, False, append_terminal_punctuation)
+    prepare_text.assert_called_once_with("One", False, False, append_terminal_punctuation, True, {})
 
 
 def test_chunk_event_offsets_and_global_word_indices():
@@ -702,3 +705,255 @@ def test_timestamp_generation_end_to_end_with_accented_text(
     audio_events = [event for event in events if isinstance(event, AudioChunk)]
     assert audio_events
     assert all(event.end_time > event.start_time for event in audio_events)
+
+
+@pytest.mark.parametrize("max_frames, expected_batches", [(0, [3]), (1, [1, 1, 1]), (2, [2, 1])])
+def test_timestamp_decoder_batches_audio_but_aligns_each_frame(
+    monkeypatch, max_frames, expected_batches
+):
+    class RecordingMimi(nn.Module):
+        frame_size = 1920
+
+        def __init__(self):
+            super().__init__()
+            self.batch_sizes = []
+
+        def decode_from_latent(self, latent, _state):
+            self.batch_sizes.append(latent.shape[1])
+            return latent[..., :1].transpose(1, 2).repeat_interleave(self.frame_size, dim=-1)
+
+    model = object.__new__(TTSModel)
+    nn.Module.__init__(model)
+    model.mimi = RecordingMimi()  # ty: ignore[invalid-assignment]
+    model.flow_lm = SimpleNamespace(emb_std=1.0, emb_mean=0.0)  # ty: ignore[invalid-assignment]
+    model.config = SimpleNamespace(mimi=SimpleNamespace(sample_rate=24000))  # ty: ignore[invalid-assignment]
+    model.max_decoder_frames_per_call = max_frames
+    monkeypatch.setattr("pocket_tts_timestamped.models.tts_model.init_states", lambda *a, **k: {})
+    increments = []
+    monkeypatch.setattr(
+        "pocket_tts_timestamped.models.tts_model.increment_steps",
+        lambda *a, increment: increments.append(increment),
+    )
+    latents_queue = queue.Queue()
+    result_queue = queue.Queue()
+    for value, scores in [(0.1, [0.9, 0.1]), (0.2, [0.1, 0.9]), (0.3, [0.1, 0.9])]:
+        latents_queue.put((torch.full((1, 1, 1), value), torch.tensor(scores)))
+    latents_queue.put(None)
+    model._decode_timestamped_audio_worker(
+        latents_queue,
+        result_queue,
+        24,
+        8,
+        WordAlignment(_units("one", "two")),
+        0.4,
+        threading.Event(),
+    )
+    results = list(result_queue.queue)
+    assert all(kind != "error" for kind, _ in results)
+    assert model.mimi.batch_sizes == expected_batches
+    assert increments == [8 * size for size in expected_batches]
+    events = [value for kind, value in results if kind == "event"]
+    audio = [event for event in events if isinstance(event, AudioChunk)]
+    assert len(audio) == 3
+    torch.testing.assert_close(audio[0].audio[:120], 0.1 * torch.linspace(0, 1, 120))
+    assert torch.all(audio[0].audio[120:] == 0.1)
+    assert torch.all(audio[1].audio == 0.2)
+    assert torch.all(audio[2].audio == 0.3)
+    assert [event.start_time for event in audio] == pytest.approx([0.4, 0.48, 0.56])
+    assert [event.end_time for event in audio] == pytest.approx([0.48, 0.56, 0.64])
+    words = [event for event in events if isinstance(event, WordEnd)]
+    assert [word.word for word in words] == ["one", "two"]
+    assert [word.start_time for word in words] == pytest.approx([0.4, 0.48])
+    assert [word.end_time for word in words] == pytest.approx([0.48, 0.64])
+    assert results[-1] == ("done", pytest.approx(0.64))
+    assert latents_queue.unfinished_tasks == 1  # Only the completion sentinel remains.
+
+
+@pytest.mark.parametrize("padding", [False, True])
+@pytest.mark.parametrize("capitalize", [False, True])
+@pytest.mark.parametrize("punctuate", [False, True])
+def test_timestamp_mapping_uses_the_same_prepared_chunks_as_ordinary_generation(
+    padding, capitalize, punctuate
+):
+    model = object.__new__(TTSModel)
+    nn.Module.__init__(model)
+    model.model_recommended_frames_after_eos = None
+    model.pad_with_spaces_for_short_inputs = padding
+    model.remove_semicolons = False
+    model.append_terminal_punctuation = punctuate
+    model.capitalize_first_letter = capitalize
+    model.replace_characters = {"’": "'"}
+    model.config = SimpleNamespace(timestamp_heads=[])  # ty: ignore[invalid-assignment]
+    model.flow_lm = SimpleNamespace(  # ty: ignore[invalid-assignment]
+        conditioner=SimpleNamespace(tokenizer=_SentencePiece021())
+    )
+    ordinary = []
+    timestamped = []
+
+    def ordinary_short(**kwargs):
+        ordinary.append((kwargs["text_to_generate"], kwargs["frames_after_eos"]))
+        yield torch.ones(1)
+
+    def timestamp_short(**kwargs):
+        timestamped.append((kwargs["timestamp_chunk"], kwargs["frames_after_eos"]))
+        yield AudioChunk(torch.ones(1), kwargs["time_offset"], kwargs["time_offset"] + 0.08)
+        return kwargs["time_offset"] + 0.08
+
+    model._generate_audio_stream_short_text = ordinary_short  # ty: ignore[invalid-assignment]
+    model._generate_audio_with_timestamps_short_text = timestamp_short  # ty: ignore[invalid-assignment]
+    source = "one l’esprit, three four."
+    with patch(
+        "pocket_tts_timestamped.models.tts_model.split_into_best_sentences",
+        return_value=["one l’esprit,", "three four."],
+    ):
+        list(model.generate_audio_stream({}, source))
+        list(model.generate_audio_with_timestamps_stream({}, source))
+    assert [(chunk.text, frames) for chunk, frames in timestamped] == ordinary
+    expected = ["one l'esprit" + ("." if punctuate else ","), "three four."]
+    if capitalize:
+        expected = [text[0].upper() + text[1:] for text in expected]
+    if padding:
+        expected = [" " * 8 + text for text in expected]
+    assert [chunk.text for chunk, _ in timestamped] == expected
+    assert [word.text for chunk, _ in timestamped for word in chunk.words] == [
+        "one",
+        "l’esprit",
+        "three",
+        "four",
+    ]
+    assert [word.word_index for chunk, _ in timestamped for word in chunk.words] == [0, 1, 2, 3]
+    for chunk, _ in timestamped:
+        assert chunk.prepared_tokens is not None
+        assert chunk.prepared_tokens.shape[1] == len(chunk.text)
+        assert chunk.token_to_unit.shape == (len(chunk.text), len(chunk.units))
+        for word in chunk.words:
+            assert source[word.begin : word.end] == word.text
+        for index, unit in enumerate(chunk.units):
+            assert chunk.token_to_unit[:, index].sum() > 0
+
+
+@pytest.mark.parametrize("finish", ["stop", "close", "complete"])
+def test_timestamp_stream_stop_and_cleanup_leave_caller_event_owned_by_caller(monkeypatch, finish):
+    class FakeFlow(nn.Module):
+        ldim = 1
+        dtype = torch.float32
+        device = torch.device("cpu")
+        emb_std = 1.0
+        emb_mean = 0.0
+
+        def __init__(self):
+            super().__init__()
+            self.weight = nn.Parameter(torch.zeros(1))
+            self.conditioner = SimpleNamespace(tokenizer=_SentencePiece021())
+
+    class FakeMimi(nn.Module):
+        frame_size = 1920
+        frame_rate = 12.5
+        encoder_frame_rate = 100
+
+        def decode_from_latent(self, latent, _state):
+            return torch.full((1, 1, self.frame_size * latent.shape[1]), 0.1)
+
+    model = TTSModel(
+        FakeFlow(),  # ty: ignore[invalid-argument-type]
+        0.3,
+        1,
+        None,
+        -4,
+        SimpleNamespace(  # ty: ignore[invalid-argument-type]
+            mimi=SimpleNamespace(sample_rate=24000, frame_rate=12.5),
+            timestamp_heads=[SimpleNamespace(layer=0, head=0)],
+        ),
+    )
+    model.mimi = FakeMimi()  # ty: ignore[invalid-assignment]
+    model._flow_lm_current_end = lambda _state: 0  # ty: ignore[invalid-assignment]
+    model._expand_kv_cache = lambda *a, **k: None  # ty: ignore[invalid-assignment]
+    model._estimate_max_gen_len = lambda _count: 10  # ty: ignore[invalid-assignment]
+    steps = []
+    started = threading.Event()
+    release = threading.Event()
+
+    def run_step(**kwargs):
+        capture = kwargs.get("attention_capture")
+        if capture is not None:
+            steps.append(threading.current_thread())
+            if len(steps) == 2 and finish != "complete":
+                started.set()
+                assert release.wait(5), "Test did not release the in-flight generation step"
+            capture.record(0, (0,), torch.ones(1, 1, capture.token_to_unit.shape[0]))
+        return torch.full((1, 1, 1), 0.1), torch.tensor(True)
+
+    model._run_flow_lm_and_increment_step = run_step  # ty: ignore[invalid-assignment]
+    monkeypatch.setattr("pocket_tts_timestamped.models.tts_model.init_states", lambda *a, **k: {})
+    monkeypatch.setattr(
+        "pocket_tts_timestamped.models.tts_model.split_into_best_sentences",
+        lambda *a, **k: ["one.", "two."],
+    )
+    stop = threading.Event()
+    stream = model.generate_audio_with_timestamps_stream({}, "one. two.", stop=stop)
+    events = []
+    try:
+        while not any(isinstance(event, AudioChunk) for event in events):
+            events.append(next(stream))
+        if finish == "complete":
+            events.extend(stream)
+        else:
+            assert started.wait(5)
+            if finish == "stop":
+                stop.set()
+                release.set()
+                events.extend(stream)
+            else:
+                release.set()
+                stream.close()
+    finally:
+        release.set()
+        stream.close()
+    assert all(not thread.is_alive() for thread in steps)
+    assert stop.is_set() == (finish == "stop")
+    if finish == "stop":
+        assert len(steps) == 2
+        assert [event.word for event in events if isinstance(event, WordStart)] == ["one"]
+        word_end = next(event for event in events if isinstance(event, WordEnd))
+        assert word_end.end_time == pytest.approx(0.08)
+        assert len([event for event in events if isinstance(event, AudioChunk)]) == 1
+    elif finish == "complete":
+        assert [event.word for event in events if isinstance(event, WordEnd)] == ["one", "two"]
+
+
+def test_timestamp_stream_with_preset_stop_does_not_start_generation(monkeypatch):
+    model = object.__new__(TTSModel)
+    nn.Module.__init__(model)
+    model.config = SimpleNamespace(timestamp_heads=[])  # ty: ignore[invalid-assignment]
+    model.model_recommended_frames_after_eos = None
+    model._prepare_text_chunks = lambda *a: [("One.", 5)]  # ty: ignore[invalid-assignment]
+    model.flow_lm = SimpleNamespace(  # ty: ignore[invalid-assignment]
+        conditioner=SimpleNamespace(tokenizer=_SentencePiece021())
+    )
+
+    def fail(**kwargs):
+        pytest.fail("A preset stop event must prevent worker startup")
+
+    model._generate_audio_with_timestamps_short_text = fail  # ty: ignore[invalid-assignment]
+    stop = threading.Event()
+    stop.set()
+    assert list(model.generate_audio_with_timestamps_stream({}, "one", stop=stop)) == []
+
+
+@pytest.mark.parametrize("max_frames", [0, 1, 2])
+def test_timestamped_audio_matches_ordinary_audio_for_comma_split_prompts(
+    spanish_timestamp_model_and_voice_state, monkeypatch, max_frames
+):
+    model, voice_state = spanish_timestamp_model_and_voice_state
+    text = "el café está aquí, la casa está allí."
+    monkeypatch.setattr(model, "max_decoder_frames_per_call", 1)
+    torch.manual_seed(123)
+    expected = model.generate_audio(voice_state, text, max_tokens=6, frames_after_eos=0)
+    monkeypatch.setattr(model, "max_decoder_frames_per_call", max_frames)
+    torch.manual_seed(123)
+    result = model.generate_audio_with_timestamps(
+        voice_state, text, max_tokens=6, frames_after_eos=0
+    )
+    torch.testing.assert_close(result.audio, expected, atol=1e-5, rtol=1e-4)
+    assert result.words
+    assert all(0 <= word.start_time <= word.end_time for word in result.words)

@@ -194,11 +194,12 @@ for word in result.words:
     print(word.word, word.start_time, word.end_time)
 ```
 
-##### `generate_audio_with_timestamps_stream(model_state, text_to_generate, frames_after_eos=None, copy_state=True)`
+##### `generate_audio_with_timestamps_stream(model_state, text_to_generate, frames_after_eos=None, copy_state=True, stop=None)`
 
 Generate audio streaming chunks and word timestamps from text input.
 
-**Parameters:** Same as `generate_audio()`
+**Parameters:** Same as `generate_audio()`, plus:
+- `stop` (threading.Event | None): Once set, generation stops after the current frame, queued audio is drained, and any open word receives its `WordEnd`.
 
 **Yields:**
 - `AudioChunk`: A chunk of generated audio with its start and end times
