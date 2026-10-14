@@ -359,7 +359,7 @@ class TTSModel(nn.Module):
                 `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`,
                 `"spanish_24l"`.
                 If neither `config` nor `language` is provided, defaults to `"english"`,
-                the same model as `"english_2026-09"`.
+                the same model as `"english_2026-09_2"`.
             config: A path to a custom YAML config file: a local path, an `https://`
                 URL, or an `hf://` path (e.g. `"hf://<repo_id>/<path>[@revision]"`).
             temp: Sampling temperature for generation. Higher values produce more

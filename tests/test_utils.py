@@ -39,7 +39,7 @@ def test_shipped_configs_sample_at_the_tuned_temperature(config_path: Path):
 @pytest.mark.parametrize(
     "language, revision",
     [
-        ("english", "1e08e6a23401048648a9fdcfde2f89348215c2a7"),
+        ("english", "575d14372df89a4534bcb989870a34e77544b09f"),
         ("english_2026-09_2", "575d14372df89a4534bcb989870a34e77544b09f"),
         ("french", "575d14372df89a4534bcb989870a34e77544b09f"),
     ],
@@ -49,3 +49,17 @@ def test_predefined_voices_match_checkpoint_revisions(language: str, revision: s
         "hf://kyutai/pocket-tts-without-voice-cloning/"
         f"languages/{language}/embeddings/alba.safetensors@{revision}"
     )
+
+
+def test_default_english_matches_calibrated_checkpoint():
+    from pocket_tts_timestamped.default_parameters import DEFAULT_LANGUAGE
+    from pocket_tts_timestamped.utils.config import CONFIGS_DIR, load_config
+
+    default = load_config(CONFIGS_DIR / f"{DEFAULT_LANGUAGE}.yaml").model_dump()
+    calibrated = load_config(CONFIGS_DIR / "english_2026-09_2.yaml").model_dump()
+    assert calibrated["timestamp_heads"]
+    for key in ("weights_path", "weights_path_without_voice_cloning"):
+        assert default.pop(key) == calibrated.pop(key).replace(
+            "/languages/english_2026-09_2/", "/languages/english/"
+        )
+    assert default == calibrated
