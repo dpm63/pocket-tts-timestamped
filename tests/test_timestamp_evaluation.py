@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import io
+import threading
 import zipfile
 from pathlib import Path
 from types import SimpleNamespace
@@ -338,16 +339,14 @@ def test_rescore_plan_uses_saved_metrics_and_schedules_no_workers(
     assert calls == ["timestamp-plan", "timestamp-v1-test"]
 
 
-def test_capture_trims_non_emitted_eos_frame_from_each_chunk(tmp_path: Path) -> None:
+def test_capture_uses_production_orchestration_and_trims_eos_frames(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     pytest.importorskip("numba")
     from collections.abc import Generator as EventGenerator
 
-    from pocket_tts_timestamped.timestamps import (
-        AudioChunk,
-        TimestampedAudio,
-        TimestampEvent,
-        TimestampTextChunk,
-    )
+    from pocket_tts_timestamped import TTSModel
+    from pocket_tts_timestamped.timestamps import AudioChunk, TimestampEvent, TimestampTextChunk
     from scripts.timestamp_eval import capture
     from scripts.timestamp_eval.capture import Generator, replay
 
@@ -359,10 +358,24 @@ def test_capture_trims_non_emitted_eos_frame_from_each_chunk(tmp_path: Path) -> 
         )
         for index, word in enumerate(("one", "two"))
     ]
+    stops: list[threading.Event | None] = []
+    monkeypatch.setattr(
+        capture.model_module, "_iter_timestamp_text_chunks", lambda *args, **kwargs: iter(chunks)
+    )
 
     class Model:
         sample_rate = 24000
-        config = SimpleNamespace(mimi=SimpleNamespace(frame_rate=12.5))
+        config = SimpleNamespace(mimi=SimpleNamespace(frame_rate=12.5), timestamp_heads=[])
+        flow_lm = SimpleNamespace(conditioner=SimpleNamespace(tokenizer=None))
+        model_recommended_frames_after_eos = 2
+        generate_audio_with_timestamps = TTSModel.generate_audio_with_timestamps
+        generate_audio_with_timestamps_stream = TTSModel.generate_audio_with_timestamps_stream
+        _generate_audio_with_timestamps_events = TTSModel._generate_audio_with_timestamps_events
+
+        def _prepare_text_chunks(
+            self, text: str, max_tokens: int, frames_after_eos: int | None
+        ) -> list[tuple[str, int]]:
+            return [(chunk.text, 2) for chunk in chunks]
 
         def get_state_for_audio_prompt(self, voice: str) -> dict[str, Any]:
             return {}
@@ -377,7 +390,10 @@ def test_capture_trims_non_emitted_eos_frame_from_each_chunk(tmp_path: Path) -> 
             frames_after_eos: int,
             copy_state: bool,
             time_offset: float,
+            stop: threading.Event | None = None,
         ) -> EventGenerator[TimestampEvent, None, float]:
+            stops.append(stop)
+            self._prepare_timestamp_text_chunk(timestamp_chunk)
             captured = capture.model_module.SelectedAttentionCapture(
                 ((0, 0),), 0, 1, timestamp_chunk.token_to_unit
             )
@@ -387,29 +403,15 @@ def test_capture_trims_non_emitted_eos_frame_from_each_chunk(tmp_path: Path) -> 
             yield AudioChunk(torch.full((1920,), 0.1), time_offset, time_offset + 0.08)
             return time_offset + 0.08
 
-        def generate_audio_with_timestamps(
-            self, state: dict[str, Any], text: str, copy_state: bool
-        ) -> TimestampedAudio:
-            audio = []
-            for index, chunk in enumerate(chunks):
-                self._prepare_timestamp_text_chunk(chunk)
-                for event in self._generate_audio_with_timestamps_short_text(
-                    model_state=state,
-                    timestamp_chunk=chunk,
-                    frames_after_eos=2,
-                    copy_state=True,
-                    time_offset=index * 0.08,
-                ):
-                    assert isinstance(event, AudioChunk)
-                    audio.append(event.audio)
-            return TimestampedAudio(torch.cat(audio), ())
-
     generator = object.__new__(Generator)
     generator.model = Model()  # ty: ignore[invalid-assignment]
     generator.item = {"checkpoint_sha256": "test", "baseline": []}
     generator.heads = [[0, 0]]
     generator.states = {}
     metadata = generator.generate({"voice": "alba", "seed": 1, "text": "one two"}, tmp_path)
+    assert len(stops) == 2
+    assert isinstance(stops[0], threading.Event)
+    assert stops[1] is stops[0]
     assert [c["offset_seconds"] for c in metadata["chunks"]] == [0, 0.08]
     assert [c["duration"] for c in metadata["chunks"]] == [0.08, 0.08]
     with np.load(tmp_path / "units.npz") as data:

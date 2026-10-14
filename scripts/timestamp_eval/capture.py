@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import threading
 import time
 from collections.abc import Generator as EventGenerator
 from collections.abc import Iterable
@@ -120,9 +121,10 @@ class Generator:
             frames_after_eos: int,
             copy_state: bool,
             time_offset: float,
+            stop: threading.Event | None = None,
         ) -> EventGenerator[TimestampEvent, None, float]:
             end = yield from original_short_text(
-                model_state, timestamp_chunk, frames_after_eos, copy_state, time_offset
+                model_state, timestamp_chunk, frames_after_eos, copy_state, time_offset, stop=stop
             )
             durations.append(end - time_offset)
             return end
