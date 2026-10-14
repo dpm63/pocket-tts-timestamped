@@ -353,7 +353,7 @@ class TTSModel(nn.Module):
             language: Optional language identifier to select a predefined config. Incompatible with
                 the `config` argument. Available options
                 are `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`,
-                `"english_2026-09"`, `"english_2026-09_24l"`,
+                `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`,
                 `"english_drifting_26-09"`, `"english"`, `"french"`, `"french_24l"`,
                 `"dutch"`, `"dutch_24l"`, `"german"`, `"german_24l"`, `"italian"`,
                 `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`,

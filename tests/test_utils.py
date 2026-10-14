@@ -34,3 +34,18 @@ def test_shipped_configs_sample_at_the_tuned_temperature(config_path: Path):
     from pocket_tts_timestamped.utils.config import load_config
 
     assert load_config(config_path).default_temperature == 0.3
+
+
+@pytest.mark.parametrize(
+    "language, revision",
+    [
+        ("english", "1e08e6a23401048648a9fdcfde2f89348215c2a7"),
+        ("english_2026-09_2", "575d14372df89a4534bcb989870a34e77544b09f"),
+        ("french", "575d14372df89a4534bcb989870a34e77544b09f"),
+    ],
+)
+def test_predefined_voices_match_checkpoint_revisions(language: str, revision: str):
+    assert utils.get_predefined_voice(language, "alba") == (
+        "hf://kyutai/pocket-tts-without-voice-cloning/"
+        f"languages/{language}/embeddings/alba.safetensors@{revision}"
+    )

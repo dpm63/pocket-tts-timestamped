@@ -129,6 +129,11 @@ pocket-tts-timestamped generate
 Modify the voice with `--voice` and the text with `--text`. We provide a small catalog of voices.
 Choose a pretrained language model with `--language` when running `generate`, `export-voice`, or `serve` (default: `english`). Non-english languages have also biggers 24 layers variants that are higher quality but slower. You can select them by using for example `--language italian_24l`.
 `--language english_drifting_26-09` selects an English model whose sampler head was trained with drifting instead of LSD (see [training/README.md](training/README.md) for the recipe).
+`--language english_2026-09_2` selects the newer English model distilled on re-aligned Dora data.
+Its timestamp heads are pending automatic calibration; audio generation is available, but timestamp
+methods raise `ValueError` until the calibration results are merged. This fork keeps `english`
+on `english_2026-09`, with its calibrated heads and matching voice embeddings, until the new heads
+are validated. Switching the default afterward also requires updating its voice embedding pin.
 The `--config` option accepts a local YAML path, an `https://` URL, or an `hf://` path (e.g. `hf://<repo_id>/<path>[@revision]`) for custom weights.
 
 You can take a look at [this page](https://huggingface.co/kyutai/tts-voices) which details the licenses
@@ -455,6 +460,16 @@ uvx pocket-tts-timestamped generate \
 </details>
 
 <details>
+<summary><a href="https://huggingface.co/alperiox/pocket-tts-turkish">Pocket TTS Turkish</a> by <a href="https://huggingface.co/alperiox">@alperiox</a>, 6 layers</summary>
+
+```bash
+uvx pocket-tts-timestamped generate \
+  --config hf://alperiox/pocket-tts-turkish/turkish_6l.yaml@13d9b4ad051ce9d5ef5bfb8af9724be01ad2fd31 \
+  --text "Merhaba, bugün hava çok güzel."
+```
+</details>
+
+<details>
 <summary><a href="https://huggingface.co/shefowl/pocket-tts-polish-6l">Pocket TTS Polish</a> by <a href="https://huggingface.co/shefowl">@shefowl</a>, 6 layers</summary>
 
 ```bash
@@ -500,6 +515,7 @@ Want your model here? Head to the [training Readme](https://github.com/kyutai-la
 - [LocalVocal.ai](https://localvocal.ai) by @joshwhiton - Fully local conversational voice-harness for Macs with Apple Silicon. Includes voice-activity & turn detection, dictation, voice cloning, CLI to talk to Claude, Codex... and more.
 - [Libratory](https://github.com/subev/libratory) by @subev - Turns PDFs into read-along audiobooks with the narration highlighted on the printed page; Pocket TTS is one of its local narrators, with voice cloning from the picker.
 - [ToBe SAID Android](https://play.google.com/store/apps/details?id=ai.lookbe.tts), [iOS/Mac](https://apps.apple.com/us/app/tobe-said/id6801981584), [Windows](https://apps.microsoft.com/detail/9mtw9scqhggc) by @lookbe - Pocket TTS that integrate into OS system voice with low latency and realtime streaming. Support quick language addition by using only HuggingFace url.
+- [Outmake](https://outmake.app) by @DaneBentley - Free Mac app for running open models on the Mac itself. Pocket TTS is one of its built-in voices, run on device through the MLX port ([mlx-community/pocket-tts](https://huggingface.co/mlx-community/pocket-tts)) with no Python.
 
 
 ## Prohibited use
