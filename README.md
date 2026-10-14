@@ -61,6 +61,7 @@ All official Pocket TTS checkpoints are supported, but accuracy differs between 
 | English 2026-04 | L3H8+L2H0 | 1500 | 14,485 | 0.1243% | 500 | 4,748 | 42.99 ms |
 | English 2026-04 24L | L14H10+L17H11+L15H4 | 1500 | 14,501 | 0.0345% | 500 | 4,779 | 38.01 ms |
 | English 2026-09 | L3H8+L2H0 | 1500 | 14,520 | 0.0620% | 500 | 4,819 | 51.23 ms |
+| English 2026-09 2 | L3H8+L2H0 | 1500 | 14,519 | 0.0964% | 500 | 4,811 | 41.31 ms |
 | English 2026-09 24L | L14H10+L17H11+L15H4 | 1500 | 14,522 | 0.0551% | 500 | 4,834 | 46.01 ms |
 | English Drifting 26-09 | L2H15 | 1500 | 14,525 | 0.0000% | 500 | 4,811 | 39.08 ms |
 | French | L3H9 | 1500 | 14,414 | 0.0347% | 500 | 4,814 | 63.20 ms |
