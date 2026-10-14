@@ -48,7 +48,12 @@ _ORIGINS_OF_PREDEFINED_VOICES = {
 
 
 def get_predefined_voice(language: str, name: str) -> str:
-    return f"hf://kyutai/pocket-tts-without-voice-cloning/languages/{language}/embeddings/{name}.safetensors@1e08e6a23401048648a9fdcfde2f89348215c2a7"
+    revision = "575d14372df89a4534bcb989870a34e77544b09f"
+    if language == "english":
+        # Keep voice states paired with the calibrated default's older weights.
+        # Remove this pin when english adopts english_2026-09_2 and its timestamp heads.
+        revision = "1e08e6a23401048648a9fdcfde2f89348215c2a7"
+    return f"hf://kyutai/pocket-tts-without-voice-cloning/languages/{language}/embeddings/{name}.safetensors@{revision}"
 
 
 def make_cache_directory() -> Path:

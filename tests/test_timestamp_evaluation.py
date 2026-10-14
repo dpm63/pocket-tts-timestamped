@@ -427,6 +427,19 @@ def test_german_sampling_excludes_dashes_but_other_languages_keep_them(dash: str
     assert clean(f"Tom voyage {dash} vers Berlin.", "fra")
 
 
+def test_new_english_checkpoint_is_discovered_without_timestamp_heads(tmp_path: Path) -> None:
+    from scripts.timestamp_eval.common import discover
+
+    configs = Path(__file__).resolve().parents[1] / "pocket_tts_timestamped" / "config"
+    config = yaml.safe_load((configs / "english_2026-09_2.yaml").read_text())
+    config.pop("timestamp_heads", None)
+    (tmp_path / "english_2026-09_2.yaml").write_text(yaml.safe_dump(config))
+    item = discover(tmp_path)[0]
+    assert item["baseline"] == []
+    assert item["asr_language"] == "en"
+    assert "alba" in item["voices"]
+
+
 def test_targeted_force_regenerates_only_requested_checkpoint(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

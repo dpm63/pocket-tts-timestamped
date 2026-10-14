@@ -17,7 +17,7 @@ This starts a server on `http://localhost:8000` with the default voice model.
 - `--host HOST`: Host to bind to (default: "localhost")
 - `--port PORT`: Port to bind to (default: 8000)
 - `--reload`: Enable auto-reload for development
-- `--language`: Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_24l"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`.
+- `--language`: Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`.
 - `--config`: Path to a custom config .yaml — a local path, an `https://` URL, or an `hf://` path. Incompatible with `--language`.
 - `--default-voice`: Voice used by the requests that don't ask for one (default: the built-in voice of the language). It accepts anything the `generate --voice` option accepts: a built-in voice name, a local path to an audio file or to a `.safetensors` voice, an `https://` URL, or an `hf://` path. It is loaded at startup, so a voice that cannot be read fails the server immediately instead of the first request.
 - `--quantize`: Use int8 quantization for the model (default: False). This can reduce memory usage and increase speed, with minimal impact on audio quality.
