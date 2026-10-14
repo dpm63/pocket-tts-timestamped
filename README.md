@@ -56,7 +56,7 @@ All official Pocket TTS checkpoints are supported, but accuracy differs between 
 |---|---|---:|---:|---:|---:|---:|---:|
 | Dutch | L4H5+L3H9+L3H14+L2H0 | 1500 | 14,566 | 0.0000% | 500 | 4,753 | 69.41 ms |
 | Dutch 24L | L17H13+L17H11 | 1500 | 14,548 | 0.0069% | 500 | 4,740 | 71.84 ms |
-| English | L3H8+L2H0 | 1500 | 14,520 | 0.0620% | 500 | 4,819 | 51.23 ms |
+| English | L3H8+L2H0 | 1500 | 14,519 | 0.0964% | 500 | 4,811 | 41.31 ms |
 | English 2026-01 | L3H8+L2H0 | 1500 | 14,577 | 0.0480% | 500 | 4,796 | 52.21 ms |
 | English 2026-04 | L3H8+L2H0 | 1500 | 14,485 | 0.1243% | 500 | 4,748 | 42.99 ms |
 | English 2026-04 24L | L14H10+L17H11+L15H4 | 1500 | 14,501 | 0.0345% | 500 | 4,779 | 38.01 ms |
@@ -130,11 +130,10 @@ pocket-tts-timestamped generate
 Modify the voice with `--voice` and the text with `--text`. We provide a small catalog of voices.
 Choose a pretrained language model with `--language` when running `generate`, `export-voice`, or `serve` (default: `english`). Non-english languages have also biggers 24 layers variants that are higher quality but slower. You can select them by using for example `--language italian_24l`.
 `--language english_drifting_26-09` selects an English model whose sampler head was trained with drifting instead of LSD (see [training/README.md](training/README.md) for the recipe).
-`--language english_2026-09_2` selects the newer English model distilled on re-aligned Dora data.
-Its timestamp heads are pending automatic calibration; audio generation is available, but timestamp
-methods raise `ValueError` until the calibration results are merged. This fork keeps `english`
-on `english_2026-09`, with its calibrated heads and matching voice embeddings, until the new heads
-are validated. Switching the default afterward also requires updating its voice embedding pin.
+The default `english` model is `english_2026-09_2`, distilled on re-aligned Dora data,
+with calibrated timestamp heads and matching voice embeddings. Select `--language english_2026-09`
+to keep using the previous English weights. Re-export custom English voice states from their
+original audio when switching to the new weights.
 The `--config` option accepts a local YAML path, an `https://` URL, or an `hf://` path (e.g. `hf://<repo_id>/<path>[@revision]`) for custom weights.
 
 You can take a look at [this page](https://huggingface.co/kyutai/tts-voices) which details the licenses
