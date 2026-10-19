@@ -27,7 +27,7 @@ jobs:
     timeout-minutes: 180
     env:
       HF_TOKEN: ${{ secrets.HF_TOKEN }}
-      HF_HOME: ${{ runner.temp }}/hf
+      HF_HOME: /tmp/hf
       PYTHONUNBUFFERED: '1'
     steps:
       - uses: actions/checkout@v4
