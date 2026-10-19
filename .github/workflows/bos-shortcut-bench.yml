@@ -62,8 +62,8 @@ jobs:
           r = json.load(open("result-${{ matrix.language }}.json"))
           print(f"### ${{ matrix.language }} ({r.get('cpu_model', '?')}, {r['cpu_count']} vCPU, {r['torch_threads']} torch threads)")
           if r["timing_only"]:
-              print("**Timing only** (no voice-cloning weights: random voice projection, onset check meaningless)
-")
+              print("**Timing only** (no voice-cloning weights: random voice projection, onset check meaningless)")
+              print()
           print("| phase | seconds |\n|---|---|")
           for k, v in r["times_s"].items():
               print(f"| {k} | {v} |")
