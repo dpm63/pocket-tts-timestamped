@@ -1,0 +1,5 @@
+# Research code copied from the BOS-shortcut experiments: not held to the package annotation rules.
+extend = "../pyproject.toml"
+
+[lint]
+extend-ignore = ["ANN"]

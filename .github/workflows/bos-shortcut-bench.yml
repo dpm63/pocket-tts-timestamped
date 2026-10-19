@@ -1,0 +1,73 @@
+name: BOS shortcut CPU benchmark
+
+# Times the BOS-shortcut steer recipe (teacher rollouts + cached bos_all training)
+# end to end on a hosted runner. Benchmark branch only: runs on push to it or by hand.
+on:
+  push:
+    branches: [bench/bos-shortcut]
+  workflow_dispatch:
+    inputs:
+      steps:
+        description: Training steps
+        default: '25'
+      n_train:
+        description: Training rollouts
+        default: '128'
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [english, english_2026-04_24l]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      HF_TOKEN: ${{ secrets.HF_TOKEN }}
+      HF_HOME: ${{ runner.temp }}/hf
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+      - name: Install
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install pocket-tts==3.0.2 soundfile
+      - name: Runner info
+        run: |
+          nproc
+          lscpu | grep -E 'Model name|Thread|Core|Socket|L3'
+          free -g
+          python -c "import torch; print(torch.__version__, torch.get_num_threads())"
+      - name: Download weights (untimed)
+        run: python -c "from pocket_tts import TTSModel; m = TTSModel.load_model(language='${{ matrix.language }}'); assert m.has_voice_cloning"
+      - name: Benchmark
+        working-directory: bench
+        run: >
+          python -m bos_shortcut.ci_bench --language ${{ matrix.language }} --texts texts_train.txt
+          --steps ${{ inputs.steps || 25 }} --n-train ${{ inputs.n_train || 128 }}
+          --out result-${{ matrix.language }}.json
+      - name: Summary
+        if: always()
+        working-directory: bench
+        run: |
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          r = json.load(open("result-${{ matrix.language }}.json"))
+          print(f"### ${{ matrix.language }} ({r.get('cpu_model', '?')}, {r['cpu_count']} vCPU, {r['torch_threads']} torch threads)")
+          print("| phase | seconds |\n|---|---|")
+          for k, v in r["times_s"].items():
+              print(f"| {k} | {v} |")
+          print(f"\nrollouts: {r['rollouts']}\n\nbaseline: {r['check_baseline']}\n\nsteer: {r['check_steer']}")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: bos-shortcut-${{ matrix.language }}
+          path: bench/result-*
+          retention-days: 30
