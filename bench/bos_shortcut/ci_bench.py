@@ -1,6 +1,6 @@
 """End-to-end CPU run of the locked BOS-shortcut recipe, timed per phase, as a CI job would run it.
 
-    load model -> encode voice prompts -> teacher rollouts -> prefix keys/values
+    load model -> encode voice prompts -> teacher rollouts (keeping their prefix keys/values)
     -> cached bos_all training -> save the steer -> onset check (baseline vs steer, warm Mimi)
 
 Voices are predefined pocket voices (downloaded from HF, nothing to commit);
@@ -108,9 +108,12 @@ def main() -> None:
         pool = [line.strip() for line in f if line.strip()]
     rng = random.Random(0)
     pairs = [(rng.randrange(len(names)), rng.choice(pool)) for _ in range(args.pairs)]
+    # The rollouts keep their prefix keys/values, so cached training never recomputes the prefix.
     data = phase(
         "rollouts",
-        lambda: make_rollouts(model, latents, pairs, args.rollout_batch, ROLLOUT_FRAMES, seed=1),
+        lambda: make_rollouts(
+            model, latents, pairs, args.rollout_batch, ROLLOUT_FRAMES, seed=1, keep_prefix_kv=True
+        ),
     )
     info["rollouts"] = summarize_rollouts(data)
     n = min(args.n_train, len(data["k"]))
