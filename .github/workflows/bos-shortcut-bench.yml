@@ -45,13 +45,14 @@ jobs:
           free -g
           python -c "import torch; print(torch.__version__, torch.get_num_threads())"
       - name: Download weights (untimed)
-        run: python -c "from pocket_tts import TTSModel; m = TTSModel.load_model(language='${{ matrix.language }}'); assert m.has_voice_cloning"
+        run: python -c "from pocket_tts import TTSModel; m = TTSModel.load_model(language='${{ matrix.language }}'); print('voice cloning:', m.has_voice_cloning)"
       - name: Benchmark
         working-directory: bench
+        # Without the HF_TOKEN secret (gated voice-cloning weights) only the costs are meaningful.
         run: >
           python -m bos_shortcut.ci_bench --language ${{ matrix.language }} --texts texts_train.txt
           --steps ${{ inputs.steps || 25 }} --n-train ${{ inputs.n_train || 128 }}
-          --out result-${{ matrix.language }}.json
+          --out result-${{ matrix.language }}.json ${{ env.HF_TOKEN == '' && '--timing-only' || '' }}
       - name: Summary
         if: always()
         working-directory: bench
@@ -60,6 +61,9 @@ jobs:
           import json
           r = json.load(open("result-${{ matrix.language }}.json"))
           print(f"### ${{ matrix.language }} ({r.get('cpu_model', '?')}, {r['cpu_count']} vCPU, {r['torch_threads']} torch threads)")
+          if r["timing_only"]:
+              print("**Timing only** (no voice-cloning weights: random voice projection, onset check meaningless)
+")
           print("| phase | seconds |\n|---|---|")
           for k, v in r["times_s"].items():
               print(f"| {k} | {v} |")

@@ -6,6 +6,10 @@
 Voices are predefined pocket voices (downloaded from HF, nothing to commit);
 texts come from a plain text file, one per line.
 
+--timing-only runs without the gated voice-cloning weights: the voice projection
+is random (same shape and scale), so costs are those of the real recipe but the
+learned steer and the onset check mean nothing.
+
 Run: python -m bos_shortcut.ci_bench --language english --texts texts_train.txt --out result.json
 """
 
@@ -44,6 +48,11 @@ def main() -> None:
     parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--check-texts", type=int, default=5)
     parser.add_argument("--threads", type=int, default=0, help="torch threads (0 = torch default)")
+    parser.add_argument(
+        "--timing-only",
+        action="store_true",
+        help="no voice-cloning weights: random voice projection",
+    )
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
     if args.threads:
@@ -71,7 +80,20 @@ def main() -> None:
 
     total0 = time.perf_counter()
     model = phase("load_model", lambda: TTSModel.load_model(language=args.language))
-    assert model.has_voice_cloning, "voice-cloning weights missing (HF_TOKEN?)"
+    info["timing_only"] = not model.has_voice_cloning
+    if model.has_voice_cloning:
+        pass
+    elif args.timing_only:
+        fl = model.flow_lm
+        # Voice embeddings at the text embeddings' scale.
+        rms = float(fl.conditioner.embed.weight.pow(2).mean().sqrt())
+        fl.speaker_proj_weight = torch.nn.Parameter(
+            torch.randn(fl.dim, fl.ldim) * rms / fl.ldim**0.5, requires_grad=False
+        )
+    else:
+        raise SystemExit(
+            "voice-cloning weights missing (HF_TOKEN?); pass --timing-only for costs alone"
+        )
     for p in model.parameters():
         p.requires_grad_(False)
     names = args.voices.split(",")
