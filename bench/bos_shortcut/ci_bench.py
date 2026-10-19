@@ -47,7 +47,7 @@ def main() -> None:
     parser.add_argument("--batch", type=int, default=64)
     parser.add_argument("--lr", type=float, default=0.1)
     parser.add_argument("--check-texts", type=int, default=5)
-    parser.add_argument("--threads", type=int, default=0, help="torch threads (0 = torch default)")
+    parser.add_argument("--threads", type=int, default=0, help="torch threads (0 = all CPUs)")
     parser.add_argument(
         "--timing-only",
         action="store_true",
@@ -55,11 +55,12 @@ def main() -> None:
     )
     parser.add_argument("--out", required=True)
     args = parser.parse_args()
-    if args.threads:
-        torch.set_num_threads(args.threads)
 
     from pocket_tts import TTSModel
     from pocket_tts.utils.utils import _ORIGINS_OF_PREDEFINED_VOICES
+
+    # After the import: pocket_tts pins torch to one thread (streaming latency).
+    torch.set_num_threads(args.threads or os.cpu_count())
 
     times, info = {}, {"language": args.language, "torch_threads": torch.get_num_threads(), "cpu_count": os.cpu_count(),
                        "processor": platform.processor() or platform.machine(), "torch": torch.__version__, "args": vars(args)}  # fmt: skip
