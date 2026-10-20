@@ -37,7 +37,7 @@ The main class for text-to-speech generation.
 
 #### Class Methods
 
-##### `load_model(language=None, config=None, temp=None, sampler_decode_steps=1, noise_clamp=None, eos_threshold=-4.0, quantize=False)`
+##### `load_model(language=None, config=None, temp=None, sampler_decode_steps=1, noise_clamp=None, eos_threshold=-4.0, quantize=False, skip_leading_silence=False)`
 
 Load and return a TTSModel instance with pre-trained weights.
 
@@ -49,6 +49,7 @@ Load and return a TTSModel instance with pre-trained weights.
 - `noise_clamp` (float | None): Maximum value for noise sampling (default: None)
 - `eos_threshold` (float): Threshold for end-of-sequence detection (default: -4.0)
 - `quantize` (bool): Enable int8 quantization when loading the model (default: `False`)
+- `skip_leading_silence` (bool | str | Path): Start speaking on the first frame instead of after the 0.5-1 s of silence the model usually generates first. `True` uses the vectors that ship with the checkpoint (none do yet); a path loads a vector file (safetensors with `vectors` and `warmup_latents`). Default `False` keeps generation identical to upstream Pocket TTS.
 
 **Returns:**
 - `TTSModel`: Loaded model instance on CPU
@@ -206,6 +207,8 @@ Generate audio streaming chunks and word timestamps from text input.
 - `WordStart`: The word and timestamp when it starts
 - `WordEnd`: The word and timestamps when it ends
 
+Word events also carry `char_start` and `char_end`: `text[event.char_start:event.char_end]` is the word.
+
 **Example:**
 ```python
 from pocket_tts_timestamped import AudioChunk, WordEnd, WordStart
@@ -218,6 +221,33 @@ for event in stream:
         print("start", event.word_index, event.word, event.start_time)
     elif isinstance(event, WordEnd):
         print("end", event.word_index, event.word, event.end_time)
+```
+
+##### `start_session(voice_state)`
+
+Start frame-by-frame timestamped generation whose text can be replaced mid-utterance. `voice_state` is copied, not modified.
+
+**Returns:**
+- `Session`, with:
+  - `prepare_text(text, start=0, append_terminal_punctuation=None)`: prepare `text[start:]`; word indices and spans still refer to all of `text`. `start` should be a word start.
+  - `set_text(window, history_from=None, reserve_frames=0)`: generate under the prepared text from now on. With `history_from`, the model re-reads `session.latents[history_from:]`, so the audio continues; without it, the next frame starts a new utterance.
+  - `generate_frame()`: generate the next 80 ms frame (`Frame`, with `eos` once the model wants to stop).
+  - `discard(frame)`: drop the last generated frame from the history; call `set_text` next.
+  - `decode(frames)`: decode frames into their word events and `AudioChunk`s. May run on another thread than `generate_frame` and `set_text`.
+  - `finish()`: the `WordEnd` of the word being spoken, at the end of the decoded audio.
+  - `latents`, `time`: generated latents, and the end of the decoded audio in seconds.
+
+**Example:**
+```python
+session = model.start_session(voice_state)
+text = "Hello there, how"
+session.set_text(session.prepare_text(text, append_terminal_punctuation=False))
+for _ in range(10):
+    for event in session.decode([session.generate_frame()]):
+        ...
+
+text += " are you today?"
+session.set_text(session.prepare_text(text), history_from=0)
 ```
 
 
