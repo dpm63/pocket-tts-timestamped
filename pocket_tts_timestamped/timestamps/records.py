@@ -12,11 +12,16 @@ class AudioChunk:
     end_time: float
 
 
+# `char_start` / `char_end` locate each word in the generated text: `text[char_start:char_end]`.
+
+
 @dataclass(frozen=True, slots=True)
 class WordStart:
     word: str
     word_index: int
     start_time: float
+    char_start: int | None = None
+    char_end: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -25,6 +30,8 @@ class WordEnd:
     word_index: int
     start_time: float
     end_time: float
+    char_start: int | None = None
+    char_end: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -33,6 +40,8 @@ class WordTimestamp:
     word_index: int
     start_time: float
     end_time: float
+    char_start: int | None = None
+    char_end: int | None = None
 
 
 @dataclass(frozen=True, slots=True)

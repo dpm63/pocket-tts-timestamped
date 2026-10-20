@@ -895,7 +895,14 @@ class TTSModel(nn.Module):
                 audio_chunks.append(event.audio)
             elif isinstance(event, WordEnd):
                 words.append(
-                    WordTimestamp(event.word, event.word_index, event.start_time, event.end_time)
+                    WordTimestamp(
+                        event.word,
+                        event.word_index,
+                        event.start_time,
+                        event.end_time,
+                        event.char_start,
+                        event.char_end,
+                    )
                 )
         audio = (
             torch.cat(audio_chunks, dim=0)

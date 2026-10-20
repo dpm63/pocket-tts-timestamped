@@ -110,7 +110,7 @@ def test_appended_terminal_punctuation_is_marked_synthetic():
     alignment.process_frame(torch.tensor([0.1, 0.9, 0.0]), True, 0.0)
     alignment.process_frame(torch.tensor([0.1, 0.9, 0.0]), True, 0.08)
     assert alignment.process_frame(torch.tensor([0.1, 0.9, 0.0]), False, 0.16) == [
-        WordEnd("world", 1, 0.08, 0.16)
+        WordEnd("world", 1, 0.08, 0.16, 6, 11)
     ]
 
 
@@ -120,9 +120,9 @@ def test_alignment_transitions_to_next_word_and_hard_finishes():
     transition = alignment.process_frame(torch.tensor([0.2, 0.8]), voiced=True, frame_start=0.08)
     final = alignment.finish(0.16)
 
-    assert first == [WordStart("one", 0, 0.0)]
-    assert transition == [WordEnd("one", 0, 0.0, 0.08), WordStart("two", 1, 0.08)]
-    assert final == [WordEnd("two", 1, 0.08, 0.16)]
+    assert first == [WordStart("one", 0, 0.0, 0, 3)]
+    assert transition == [WordEnd("one", 0, 0.0, 0.08, 0, 3), WordStart("two", 1, 0.08, 3, 6)]
+    assert final == [WordEnd("two", 1, 0.08, 0.16, 3, 6)]
 
 
 @pytest.fixture
@@ -139,7 +139,7 @@ def test_later_word_evidence_below_gate_advances_one_word(non_next_attention_gat
         torch.tensor([non_next_attention_gate / 2, 0.01, 0.9]), True, 0.08
     )
 
-    assert events == [WordEnd("one", 0, 0.0, 0.08), WordStart("two", 1, 0.08)]
+    assert events == [WordEnd("one", 0, 0.0, 0.08, 0, 3), WordStart("two", 1, 0.08, 3, 6)]
 
 
 def test_non_next_evidence_above_gate_is_blocked(non_next_attention_gate):
@@ -172,7 +172,7 @@ def test_silence_closes_for_future_punctuation_but_never_opens():
     alignment = WordAlignment(_units("one", "P:."))
     alignment.process_frame(torch.tensor([0.8, 0.2]), True, 0.0)
     events = alignment.process_frame(torch.tensor([0.2, 0.8]), False, 0.08)
-    assert events == [WordEnd("one", 0, 0.0, 0.08)]
+    assert events == [WordEnd("one", 0, 0.0, 0.08, 0, 3)]
     assert alignment.process_frame(torch.tensor([0.1, 0.9]), False, 0.16) == []
 
 
@@ -180,7 +180,7 @@ def test_unpunctuated_final_word_closes_on_first_silence():
     alignment = WordAlignment(_units("one"))
     alignment.process_frame(torch.tensor([1.0]), True, 0.0)
     assert alignment.process_frame(torch.tensor([1.0]), False, 0.08) == [
-        WordEnd("one", 0, 0.0, 0.08)
+        WordEnd("one", 0, 0.0, 0.08, 0, 3)
     ]
 
 
@@ -707,9 +707,8 @@ def test_timestamp_generation_end_to_end_with_accented_text(
     spanish_timestamp_model_and_voice_state,
 ):
     model, voice_state = spanish_timestamp_model_and_voice_state
-    stream = model.generate_audio_with_timestamps_stream(
-        voice_state, "El café está aquí.", frames_after_eos=0
-    )
+    text = "El café está aquí."
+    stream = model.generate_audio_with_timestamps_stream(voice_state, text, frames_after_eos=0)
     events = list(stream)
 
     word_events = [event for event in events if isinstance(event, WordEnd)]
@@ -717,6 +716,9 @@ def test_timestamp_generation_end_to_end_with_accented_text(
     observed_words = [(event.word_index, event.word) for event in word_events]
     assert observed_words
     assert observed_words == list(enumerate(expected_words))[: len(observed_words)]
+    for event in events:
+        if isinstance(event, (WordStart, WordEnd)):
+            assert text[event.char_start : event.char_end] == event.word
     audio_events = [event for event in events if isinstance(event, AudioChunk)]
     assert audio_events
     assert all(event.end_time > event.start_time for event in audio_events)
@@ -972,3 +974,5 @@ def test_timestamped_audio_matches_ordinary_audio_for_comma_split_prompts(
     torch.testing.assert_close(result.audio, expected, atol=1e-5, rtol=1e-4)
     assert result.words
     assert all(0 <= word.start_time <= word.end_time for word in result.words)
+    # Spans locate words in the whole text, across text chunks.
+    assert all(text[word.char_start : word.char_end] == word.word for word in result.words)

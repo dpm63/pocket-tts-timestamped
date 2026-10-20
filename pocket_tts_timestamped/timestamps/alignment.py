@@ -135,12 +135,14 @@ class WordAlignment:
         self._open_word_position = position
         self._open_start = timestamp
         self._next_word_position = position + 1
-        return WordStart(word.text, word.word_index, timestamp)
+        return WordStart(word.text, word.word_index, timestamp, word.begin, word.end)
 
     def _close(self, timestamp: float) -> WordEnd:
         assert self._open_word_position is not None and self._open_start is not None
         word = self._word(self._open_word_position)
-        event = WordEnd(word.text, word.word_index, self._open_start, timestamp)
+        event = WordEnd(
+            word.text, word.word_index, self._open_start, timestamp, word.begin, word.end
+        )
         self._open_word_position = None
         self._open_start = None
         return event
