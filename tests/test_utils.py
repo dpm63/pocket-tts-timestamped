@@ -39,9 +39,9 @@ def test_shipped_configs_sample_at_the_tuned_temperature(config_path: Path):
 @pytest.mark.parametrize(
     "language, revision",
     [
-        ("english", "575d14372df89a4534bcb989870a34e77544b09f"),
-        ("english_2026-09_2", "575d14372df89a4534bcb989870a34e77544b09f"),
-        ("french", "575d14372df89a4534bcb989870a34e77544b09f"),
+        ("english", "a3055dcb533cf2ec90458008a01e7cef550bae2a"),
+        ("english_2026-09_2", "a3055dcb533cf2ec90458008a01e7cef550bae2a"),
+        ("french", "a3055dcb533cf2ec90458008a01e7cef550bae2a"),
     ],
 )
 def test_predefined_voices_match_checkpoint_revisions(language: str, revision: str):
@@ -63,3 +63,27 @@ def test_default_english_matches_calibrated_checkpoint():
             "/languages/english_2026-09_2/", "/languages/english/"
         )
     assert default == calibrated
+
+
+def test_eos_threshold_defaults_to_the_config(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    """load_model takes the EOS threshold from the config unless the caller passes one."""
+    import yaml
+
+    from pocket_tts_timestamped import TTSModel
+    from pocket_tts_timestamped.default_parameters import DEFAULT_EOS_THRESHOLD
+
+    config = Path(__file__).parent.parent / "pocket_tts_timestamped" / "config" / "english.yaml"
+    custom = tmp_path / "custom.yaml"
+    custom.write_text(
+        yaml.safe_dump({**yaml.safe_load(config.read_text()), "default_eos_threshold": -1.0})
+    )
+    seen = []
+    monkeypatch.setattr(
+        TTSModel,
+        "_from_pydantic_config_with_weights",
+        classmethod(lambda cls, cfg, temp, steps, clamp, eos, origin: seen.append(eos)),
+    )
+    TTSModel.load_model(config=config)
+    TTSModel.load_model(config=custom)
+    TTSModel.load_model(config=custom, eos_threshold=-2.0)
+    assert seen == [DEFAULT_EOS_THRESHOLD, -1.0, -2.0]

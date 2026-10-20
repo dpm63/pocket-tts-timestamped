@@ -688,6 +688,21 @@ def test_timestamp_chunks_use_production_tokenizer_for_canonical_unicode(
     assert [word.text for word in chunk.words] == list(expected_words)
 
 
+def test_timestamp_chunks_support_sentencepiece_model_configs():
+    # The small English configs ship a SentencePiece `.model` rather than a tokenizer.json.
+    lookup_table = load_config(CONFIGS_DIR / "english_2m_2026-10.yaml").flow_lm.lookup_table
+    assert lookup_table.tokenizer == "sentencepiece"
+    tokenizer = build_tokenizer(
+        lookup_table.n_bins, lookup_table.tokenizer_path, lookup_table.tokenizer
+    )
+    text = "Hello there, it's a fine day."
+    chunk = build_timestamp_text_chunks(text, [text], tokenizer)[0]
+
+    assert chunk.prepared_tokens is not None
+    assert chunk.prepared_tokens[0].tolist() == tokenizer.encode(chunk.text)
+    assert [word.text for word in chunk.words] == ["Hello", "there", "it's", "a", "fine", "day"]
+
+
 def test_timestamp_generation_end_to_end_with_accented_text(
     spanish_timestamp_model_and_voice_state,
 ):

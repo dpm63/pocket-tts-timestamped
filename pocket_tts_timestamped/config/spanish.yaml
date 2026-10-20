@@ -16,6 +16,7 @@ replace_characters:
   ']': ''
   '¡': ''
   '¿': ''
+  '–': ','
 
 timestamp_heads:
 - layer: 3

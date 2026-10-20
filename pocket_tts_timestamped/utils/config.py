@@ -6,6 +6,7 @@ import yaml
 from pydantic import BaseModel, ConfigDict, model_validator
 from typing_extensions import Self
 
+from pocket_tts_timestamped.default_parameters import DEFAULT_EOS_THRESHOLD
 from pocket_tts_timestamped.utils.utils import download_if_necessary
 
 CONFIGS_DIR = Path(__file__).parent.parent / "config"
@@ -20,8 +21,9 @@ class FlowConfig(StrictModel):
     dim: int
     depth: int
     # "lsd" (2 time conditions, 1-step decode), "flow_matching" (1 time
-    # condition, Euler integration; needs >= 16 decode steps) or "drifting"
-    # (no time condition, the head maps noise to a sample in one step).
+    # condition, Euler integration; needs >= 16 decode steps), "drifting"
+    # (no time condition, the head maps noise to a sample in one step) or "pointwise"
+    # (no time condition, one step: the noise plus the head's output, i.e. LSD's 0 -> 1 step).
     type: str = "lsd"
 
 
@@ -32,6 +34,12 @@ class FlowLMTransformerConfig(StrictModel):
     d_model: int
     num_heads: int
     num_layers: int
+    # Width of queries and of the attention output; d_model when None.
+    attn_dim: int | None = None
+    # Key/value heads, each shared by num_heads // num_kv_heads query heads; num_heads when None.
+    num_kv_heads: int | None = None
+    # Hidden width of the feed-forward layers; d_model * hidden_scale when None.
+    dim_feedforward: int | None = None
 
 
 class LookupTable(StrictModel):
@@ -39,6 +47,8 @@ class LookupTable(StrictModel):
     n_bins: int
     tokenizer: str
     tokenizer_path: str
+    # Low-rank table: rank-wide embeddings and a bias-free projection to dim; full when None.
+    rank: int | None = None
 
 
 # Root configuration
@@ -50,6 +60,9 @@ class FlowLMConfig(StrictModel):
     # Nested configurations
     flow: FlowConfig
     transformer: FlowLMTransformerConfig
+    # Width of the backbone output fed to the sampler and EOS heads: a bias-free projection
+    # from d_model when set, the transformer output itself when None.
+    z_dim: int | None = None
 
     # conditioning
     lookup_table: LookupTable
@@ -113,6 +126,10 @@ class MimiConfig(StrictModel):
     weights_path: str | None = None
     inner_dim: int | None = None
     outer_dim: int | None = None
+    # Decoder-side SEANet and transformer, when they differ from the encoder's (seanet and
+    # transformer). The decoder side also includes quantizer.output_dimension and outer_dim.
+    decoder_seanet: SEANetConfig | None = None
+    decoder_transformer: MimiTransformerConfig | None = None
 
 
 class TimestampHeadConfig(StrictModel):
@@ -141,6 +158,9 @@ class Config(StrictModel):
     replace_characters: dict[str, str] = {}
     model_recommended_frames_after_eos: int | None = None
     default_temperature: float = 0.3
+    # EOS threshold used when the caller does not pass one (generation stops once the EOS logit
+    # exceeds it); a config sets its own value if its model was evaluated with another one.
+    default_eos_threshold: float = DEFAULT_EOS_THRESHOLD
     timestamp_heads: list[TimestampHeadConfig] | None = None
 
     @model_validator(mode="after")
