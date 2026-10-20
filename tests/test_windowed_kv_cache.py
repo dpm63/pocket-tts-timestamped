@@ -84,6 +84,18 @@ def test_windowed_cache_matches_linear_with_padding():
     torch.testing.assert_close(actual[:, pad:], expected[:, pad:], atol=1e-5, rtol=1e-5)
 
 
+def test_windowed_cache_shrinks_back_after_a_large_call():
+    """A batched decode grows the cache once; later single steps must not attend over it."""
+    torch.manual_seed(1)
+    call_sizes = [3 * CAPACITY] + [1] * 5
+    x = torch.randn(1, sum(call_sizes), 32)
+    expected, _ = run(build(linear=True), x, call_sizes)
+    actual, state = run(build(linear=False), x, call_sizes)
+    torch.testing.assert_close(actual, expected, atol=1e-5, rtol=1e-5)
+    for module_state in state.values():
+        assert module_state["cache"].shape[2] == CAPACITY
+
+
 def test_windowed_cache_stays_bounded():
     torch.manual_seed(1)
     x = torch.randn(1, 10 * CAPACITY, 32)
