@@ -95,13 +95,14 @@ def test_generate_reports_autoregressive_errors_before_decoder_done():
 def test_ordinary_decoder_rejects_timestamp_scores_in_drained_batch(
     monkeypatch: pytest.MonkeyPatch,
 ):
-    monkeypatch.setattr(tts_model_module, "init_states", lambda *args, **kwargs: {})
     model = cast(
         TTSModel,
         SimpleNamespace(
             mimi=object(),
             config=SimpleNamespace(mimi=SimpleNamespace(sample_rate=24000)),
             max_decoder_frames_per_call=0,
+            _new_mimi_state=lambda _sequence_length: {},
+            _warm_mimi_state=None,
         ),
     )
     latents_queue = queue.Queue()

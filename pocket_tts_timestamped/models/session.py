@@ -21,7 +21,7 @@ import torch
 
 from pocket_tts_timestamped.data.audio_utils import _fade_in_audio
 from pocket_tts_timestamped.models.text_chunking import prepare_text_prompt
-from pocket_tts_timestamped.modules.stateful_module import ModelState, increment_steps, init_states
+from pocket_tts_timestamped.modules.stateful_module import ModelState, increment_steps
 from pocket_tts_timestamped.timestamps.alignment import (
     SelectedAttentionCapture,
     WordAlignment,
@@ -107,9 +107,7 @@ class Session:
             dtype=model.flow_lm.dtype,
         )
         self._mimi_steps = int(model.mimi.encoder_frame_rate / model.mimi.frame_rate)
-        self._mimi_state = init_states(
-            model.mimi, batch_size=1, sequence_length=decoder_frames * self._mimi_steps
-        )
+        self._mimi_state = model._new_mimi_state(decoder_frames * self._mimi_steps)
         # Generated latents the caller kept (see `discard`); `set_text` replays them.
         self.latents: list[torch.Tensor] = []
         self._window: TextWindow | None = None
@@ -119,7 +117,8 @@ class Session:
         # Decoder side.
         self._time_offset = time_offset
         self._decoded_samples = 0
-        self._first_decode = True
+        # A fresh decoder clicks on its first samples; a warm one (leading-silence vectors) doesn't.
+        self._fade_first_decode = model._warm_mimi_state is None
         self._alignment: WordAlignment | None = None
         self._aligned_window: TextWindow | None = None
 
@@ -170,8 +169,9 @@ class Session:
 
         With `history_from`, the FlowLM re-reads `latents[history_from:]` after the text, so
         generation continues the audio; the BOS before them is the plain model BOS. Without
-        it, the next frame starts a new utterance from BOS. `reserve_frames` sizes the FlowLM
-        cache for that many frames up front; it grows on demand either way.
+        it, the next frame starts a new utterance from BOS, with the leading-silence vectors
+        if the model has them. `reserve_frames` sizes the FlowLM cache for that many frames up
+        front; it grows on demand either way.
         """
         if window.chunk.token_to_unit.shape[0] != window.tokens.shape[1]:
             raise RuntimeError("Timestamp token mapping does not match FlowLM tokenization")
@@ -254,9 +254,9 @@ class Session:
         audio = model.mimi.decode_from_latent(
             latents * model.flow_lm.emb_std + model.flow_lm.emb_mean, self._mimi_state
         )
-        if self._first_decode:
+        if self._fade_first_decode:
             _fade_in_audio(audio, model.sample_rate)
-            self._first_decode = False
+            self._fade_first_decode = False
         increment_steps(model.mimi, self._mimi_state, increment=self._mimi_steps * len(frames))
         events: list[TimestampEvent] = []
         for frame, frame_audio in zip(

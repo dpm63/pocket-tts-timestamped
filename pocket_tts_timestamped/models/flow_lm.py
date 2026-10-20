@@ -88,6 +88,9 @@ class FlowLMModel(nn.Module):
     speaker_proj_weight: nn.Parameter
     # Only exists when insert_bos_before_voice is set.
     bos_before_voice: nn.Parameter
+    # Leading-silence vectors ([num_layers + 1, dim]): added to the residual stream on a lone
+    # BOS step, so the first frame starts speech (TTSModel.load_model(skip_leading_silence=...)).
+    leading_silence_vectors: torch.Tensor | None
 
     def __init__(
         self,
@@ -116,6 +119,7 @@ class FlowLMModel(nn.Module):
         self.register_buffer("emb_std", torch.ones(ldim, dtype=dtype))
         self.register_buffer("emb_mean", torch.zeros(ldim, dtype=dtype))
         self.bos_emb = torch.nn.Parameter(torch.randn(ldim, dtype=dtype))
+        self.register_buffer("leading_silence_vectors", None, persistent=False)
         self.insert_bos_before_voice = insert_bos_before_voice
         if self.insert_bos_before_voice:
             # Add BOS value that's to be inserted before the voice condition
@@ -156,6 +160,16 @@ class FlowLMModel(nn.Module):
             (output, eos_output, metrics). If `sampler_decode_steps` is zero, `output` is the loss tensor of shape [B, S],
             otherwise it is the reconstructed latent.
         """
+        # The leading-silence vectors only apply to the first frame of an utterance: a lone
+        # BOS step, with no text or replayed audio in the same call.
+        residual_offsets = None
+        if (
+            self.leading_silence_vectors is not None
+            and sequence.shape[1] == 1
+            and text_embeddings.shape[1] == 0
+            and bool(torch.isnan(sequence).all())
+        ):
+            residual_offsets = self.leading_silence_vectors
         # NaN values signal a BOS position.
         sequence = torch.where(torch.isnan(sequence), self.bos_emb, sequence)
         input_ = self.input_linear(sequence)
@@ -166,6 +180,7 @@ class FlowLMModel(nn.Module):
             sequence,
             model_state=model_state,
             attention_capture=attention_capture,
+            residual_offsets=residual_offsets,
         )
         transformer_out = transformer_out.to(torch.float32)
         assert sampler_decode_steps > 0
@@ -200,6 +215,7 @@ class FlowLMModel(nn.Module):
         sequence: torch.Tensor,
         model_state: ModelState,
         attention_capture: SelectedAttentionCapture | None = None,
+        residual_offsets: torch.Tensor | None = None,
     ) -> torch.Tensor:
         # Most of the time, one of those two tensors is empty, it allows us
         # to input text or audio embeddings into the model without adding an
@@ -209,7 +225,12 @@ class FlowLMModel(nn.Module):
         #     torch.save(text_embeddings, "debug_flow_lm_text_embeddings.pt")
         input_ = torch.cat([text_embeddings, input_], dim=1)
         # transformer_out = self.transformer(input_, model_state=model_state)
-        transformer_out = self.transformer(input_, model_state, attention_capture=attention_capture)
+        transformer_out = self.transformer(
+            input_,
+            model_state,
+            attention_capture=attention_capture,
+            residual_offsets=residual_offsets,
+        )
         if self.out_norm:
             transformer_out = self.out_norm(transformer_out)
         # remove the prefix from the model outputs (condition is prepended)

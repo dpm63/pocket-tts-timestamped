@@ -239,6 +239,8 @@ def _fake_session(mimi, *, sample_rate, emb_std=1.0, emb_mean=0.0, time_offset=0
         config=SimpleNamespace(timestamp_heads=None),
         sample_rate=sample_rate,
         _flow_lm_current_end=lambda _state: 0,
+        _new_mimi_state=lambda _sequence_length: {},
+        _warm_mimi_state=None,
     )
     return Session(model, {}, time_offset=time_offset)  # ty: ignore[invalid-argument-type]
 
@@ -945,7 +947,7 @@ def test_timestamp_stream_stop_and_cleanup_leave_caller_event_owned_by_caller(mo
         return torch.full((1, 1, 1), 0.1), torch.tensor(True)
 
     model._run_flow_lm_and_increment_step = run_step  # ty: ignore[invalid-assignment]
-    monkeypatch.setattr("pocket_tts_timestamped.models.session.init_states", lambda *a, **k: {})
+    monkeypatch.setattr("pocket_tts_timestamped.models.tts_model.init_states", lambda *a, **k: {})
     monkeypatch.setattr(
         "pocket_tts_timestamped.models.tts_model.split_into_best_sentences",
         lambda *a, **k: ["one.", "two."],

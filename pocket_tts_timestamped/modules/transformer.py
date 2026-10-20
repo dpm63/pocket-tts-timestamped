@@ -150,13 +150,18 @@ class StreamingTransformer(nn.Module):
         x: torch.Tensor,
         model_state: ModelState | None,
         attention_capture: SelectedAttentionCapture | None = None,
+        residual_offsets: torch.Tensor | None = None,
     ) -> torch.Tensor:
+        """`residual_offsets` ([num_layers + 1, d_model]), if given, is added to the input of
+        each layer and, last row, to the output."""
         attn_mask = None
         if model_state is None:
             # Stateless (training) path: one shared mask for all layers, built
             # outside any compiled region.
             attn_mask = _cached_causal_mask(x.shape[1], self.context, x.device)
         for layer_index, layer in enumerate(self.layers):
+            if residual_offsets is not None:
+                x = x + residual_offsets[layer_index].to(x.dtype)
             x = layer(
                 x,
                 model_state,
@@ -164,6 +169,8 @@ class StreamingTransformer(nn.Module):
                 attention_capture=attention_capture,
                 layer_index=layer_index,
             )
+        if residual_offsets is not None:
+            x = x + residual_offsets[-1].to(x.dtype)
         return x
 
 

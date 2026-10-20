@@ -10,6 +10,7 @@ from collections.abc import Generator, Iterator
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
+from urllib.parse import urljoin
 
 import safetensors
 import safetensors.torch
@@ -101,6 +102,16 @@ def _iter_latent_batches(
             return
 
 
+def _beside_config(config_path: str, relative: str) -> str:
+    """`relative` resolved against the directory of `config_path` (local, hf:// or http(s))."""
+    if config_path.startswith("hf://"):
+        path, _, revision = config_path.partition("@")
+        return f"{path.rpartition('/')[0]}/{relative}" + (f"@{revision}" if revision else "")
+    if config_path.startswith(("http://", "https://")):
+        return urljoin(config_path, relative)
+    return str(Path(config_path).parent / relative)
+
+
 def stamp_state_names(tts_model: "TTSModel") -> None:
     """StatefulModules find their slice of the state dict by absolute name."""
     for top_module in (tts_model.flow_lm, tts_model.mimi):
@@ -125,6 +136,8 @@ class TTSModel(nn.Module):
     # EOS is ignored on the first frames: before speech starts, the EOS logit of some voices can
     # cross the threshold, and a short text then ends before the word is spoken.
     _MIN_FRAMES_BEFORE_EOS = 6
+    # Decoder state after the leading-silence warm-up; see _load_leading_silence_vectors.
+    _warm_mimi_state: ModelState | None = None
 
     def __init__(
         self,
@@ -336,6 +349,7 @@ class TTSModel(nn.Module):
         quantize: bool = False,
         checkpoint: str | Path | None = None,
         lsd_decode_steps: int | None = None,
+        skip_leading_silence: bool | str | Path = False,
     ) -> Self:
         """Load a pre-trained TTS model with specified configuration.
 
@@ -379,6 +393,11 @@ class TTSModel(nn.Module):
                 No measurable impact on speech quality (WER unchanged).
                 For optimized performance, install torchao:
                 ``pip install pocket-tts-timestamped[quantize]``
+            skip_leading_silence: Start speaking on the first frame instead of after the
+                0.5-1 s of silence the model usually generates first. True uses the vectors
+                that ship with the checkpoint (an error if it has none); a path loads your own
+                (safetensors with `vectors` and `warmup_latents`). Off by default, which keeps
+                generation identical to upstream pocket-tts.
 
         Returns:
             TTSModel: Fully initialized model with loaded weights on cpu, ready for
@@ -424,6 +443,18 @@ class TTSModel(nn.Module):
             temp = model_config.default_temperature
         if eos_threshold is None:
             eos_threshold = model_config.default_eos_threshold
+        leading_silence_source = None
+        if skip_leading_silence is True:
+            leading_silence_source = model_config.leading_silence_vectors
+            if leading_silence_source is None:
+                raise ValueError(
+                    f"The config at {config_path} has no leading-silence vectors; pass a path "
+                    "to skip_leading_silence to use your own."
+                )
+            if not leading_silence_source.startswith(("hf://", "http://", "https://")):
+                leading_silence_source = _beside_config(config_path, leading_silence_source)
+        elif skip_leading_silence is not False:
+            leading_silence_source = str(skip_leading_silence)
         logger.info(f"Loading model from config at {config_path}...")
 
         origin = Path(config_path)
@@ -440,7 +471,55 @@ class TTSModel(nn.Module):
         if quantize:
             apply_dynamic_int8(tts_model.flow_lm, RECOMMENDED_CONFIG)
 
+        if leading_silence_source is not None:
+            tts_model._load_leading_silence_vectors(download_if_necessary(leading_silence_source))
+
         return tts_model
+
+    def _load_leading_silence_vectors(self, path: Path) -> None:
+        """Load leading-silence vectors and warm up the Mimi decoder they start into.
+
+        The file holds `vectors` ([num_layers + 1, d_model], added to the FlowLM residual
+        stream on a lone BOS step) and `warmup_latents` ([frames, ldim], normalized latents of
+        silence). A cold decoder makes an instant start too loud, so every decoder state starts
+        from one that has decoded the warm-up latents.
+        """
+        tensors = safetensors.torch.load_file(str(path))
+        vectors, warmup = tensors["vectors"], tensors["warmup_latents"]
+        transformer = self.config.flow_lm.transformer
+        expected = (transformer.num_layers + 1, transformer.d_model)
+        if tuple(vectors.shape) != expected:
+            raise ValueError(
+                f"Leading-silence vectors have shape {tuple(vectors.shape)}, expected {expected}"
+            )
+        if warmup.dim() != 2 or warmup.shape[1] != self.flow_lm.ldim:
+            raise ValueError(
+                f"Warm-up latents have shape {tuple(warmup.shape)}, expected [frames, "
+                f"{self.flow_lm.ldim}]"
+            )
+        device = self.flow_lm.bos_emb.device
+        self.flow_lm.register_buffer(
+            "leading_silence_vectors", vectors.to(device), persistent=False
+        )
+        steps_per_latent = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
+        # Windowed decoder caches hold their window whatever the length asked for here.
+        state = init_states(self.mimi, batch_size=1, sequence_length=1 << 20)
+        with torch.no_grad():
+            warmup = warmup[None].to(device=device, dtype=self.flow_lm.emb_std.dtype)
+            self.mimi.decode_from_latent(
+                warmup * self.flow_lm.emb_std + self.flow_lm.emb_mean, state
+            )
+        increment_steps(self.mimi, state, increment=warmup.shape[1] * steps_per_latent)
+        self._warm_mimi_state = state
+
+    def _new_mimi_state(self, sequence_length: int) -> ModelState:
+        """A decoder state for a new utterance: warm with leading-silence vectors, else fresh.
+
+        Only a fresh one needs the first frame faded in (`_warm_mimi_state is None`).
+        """
+        if self._warm_mimi_state is not None:
+            return copy.deepcopy(self._warm_mimi_state)
+        return init_states(self.mimi, batch_size=1, sequence_length=sequence_length)
 
     def _run_flow_lm_and_increment_step(
         self,
@@ -569,11 +648,11 @@ class TTSModel(nn.Module):
         """Worker thread function for decoding audio latents from queue with immediate streaming."""
         try:
             audio_chunks = []
-            mimi_state = init_states(self.mimi, batch_size=1, sequence_length=mimi_sequence_length)
+            mimi_state = self._new_mimi_state(mimi_sequence_length)
             # A fresh Mimi decoder state puts a small step (about -41 dBFS) in its first samples, heard
             # as a click at the start of every chunk: fade the first 5 ms in. (The longer burst some
             # voices produced came from prompts ending on speech, handled by end_on_pause.)
-            first_batch = True
+            first_batch = self._warm_mimi_state is None
             for batch in _iter_latent_batches(latents_queue, self.max_decoder_frames_per_call):
                 latents = []
                 for item in batch:

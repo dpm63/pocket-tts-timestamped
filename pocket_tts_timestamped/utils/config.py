@@ -162,6 +162,9 @@ class Config(StrictModel):
     # exceeds it); a config sets its own value if its model was evaluated with another one.
     default_eos_threshold: float = DEFAULT_EOS_THRESHOLD
     timestamp_heads: list[TimestampHeadConfig] | None = None
+    # Leading-silence vectors for TTSModel.load_model(skip_leading_silence=True): hf://, http(s)
+    # or a path relative to this config.
+    leading_silence_vectors: str | None = None
 
     @model_validator(mode="after")
     def validate_timestamp_heads(self) -> Self:
