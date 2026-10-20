@@ -10,6 +10,12 @@ replace_characters:
   '’': "'"
   '‘': "'"
 
+timestamp_heads:
+- layer: 2
+  head: 7
+- layer: 2
+  head: 5
+
 flow_lm:
   insert_bos_before_voice: true
   dtype: float32
