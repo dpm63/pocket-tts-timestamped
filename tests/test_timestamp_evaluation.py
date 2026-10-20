@@ -420,13 +420,12 @@ def test_capture_uses_production_orchestration_and_trims_eos_frames(
 
 
 @pytest.mark.parametrize("dash", ["–", "—"])
-def test_german_sampling_excludes_dashes_but_other_languages_keep_them(dash: str) -> None:
+def test_sampling_keeps_dashes(dash: str) -> None:
+    # Configs rewrite dashes their model never saw (upstream #387), so prompts keep them.
     from scripts.timestamp_eval.sampling import clean
 
-    assert not clean(f"Heute fährt Tom {dash} nach Berlin.", "deu")
-    assert clean("Heute fährt Tom - nach Berlin.", "deu")
-    assert clean(f"Today Tom travels {dash} to Berlin.", "eng")
-    assert clean(f"Tom voyage {dash} vers Berlin.", "fra")
+    assert clean(f"Heute fährt Tom {dash} nach Berlin.")
+    assert clean(f"Today Tom travels {dash} to Berlin.")
 
 
 def test_new_english_checkpoint_is_discovered_without_timestamp_heads(tmp_path: Path) -> None:
