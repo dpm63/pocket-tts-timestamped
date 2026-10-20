@@ -133,8 +133,9 @@ class _WindowedKVCacheBackend(_LinearKVCacheBackend):
     With a finite `context`, a query at position `p` only sees keys after `p - context`.
     The linear cache keeps every key and masks the old ones out, so its memory grows with the
     sequence and each step attends over all of it. This cache stores at most
-    `context + _WINDOW_HEADROOM` slots (more only while one call writes more steps than that)
-    and gives the same output: keys keep their absolute positions for RoPE and the mask.
+    `context + _WINDOW_HEADROOM` slots and gives the same output: keys keep their absolute
+    positions for RoPE and the mask. A call that writes more steps than that grows the cache
+    for itself; the next call that fits shrinks it back.
     """
 
     def __init__(self, num_heads: int, dim_per_head: int, context: int):
@@ -157,26 +158,30 @@ class _WindowedKVCacheBackend(_LinearKVCacheBackend):
         offset_tensor = state["offset"]
         if offset_tensor.numel() > 1 and not torch.all(offset_tensor == offset_tensor.view(-1)[0]):
             raise ValueError("Windowed cache offset must be identical across batch.")
-        offset = int(offset_tensor.view(-1)[0].item())
-        start = int(state["start"].view(-1)[0].item())
+        # One host sync for both positions.
+        offset, start = torch.stack(
+            [offset_tensor.view(-1)[0], state["start"].view(-1)[0]]
+        ).tolist()
         steps = k.shape[1]
         cache = state["cache"]
-        if offset - start + steps > cache.shape[2]:
+        bound = self.context + _WINDOW_HEADROOM
+        if offset - start + steps > cache.shape[2] or cache.shape[2] > bound:
             # The first new query, at `offset`, reaches back to `offset - context + 1`.
             keep = max(start, offset - self.context + 1)
             kept = offset - keep
-            if kept + steps > cache.shape[2]:
-                # One call writes more steps than the cache holds: grow it.
-                capacity = max(kept + steps, self.context + _WINDOW_HEADROOM)
-                grown = torch.full(
+            capacity = max(kept + steps, bound)
+            if capacity != cache.shape[2]:
+                # Grow for a call that writes more steps than the cache holds, or shrink back
+                # to the bound after one.
+                resized = torch.full(
                     (*cache.shape[:2], capacity, *cache.shape[3:]),
                     float("NaN"),
                     device=cache.device,
                     dtype=cache.dtype,
                 )
-                grown[:, :, :kept] = cache[:, :, keep - start : offset - start]
-                state["cache"] = cache = grown
-            else:
+                resized[:, :, :kept] = cache[:, :, keep - start : offset - start]
+                state["cache"] = cache = resized
+            elif keep > start:
                 cache[:, :, :kept] = cache[:, :, keep - start : offset - start].clone()
             state["start"].fill_(keep)
             start = keep
