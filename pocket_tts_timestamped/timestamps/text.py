@@ -237,6 +237,8 @@ def _expand_byte_fallback_spans(
 
 class _SentencePieceLayoutReader:
     def __init__(self, processor: object):
+        # SentencePieceTokenizer (a `.model` config) wraps its processor in `sp`.
+        processor = getattr(processor, "sp", processor)
         self._processor = cast(_SentencePieceProcessor, processor)
         self._json_tokenizer = getattr(processor, "tokenizer", None)
         self._reader: Callable[[str], _PieceLayout] | None = None

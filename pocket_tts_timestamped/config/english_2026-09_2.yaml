@@ -6,6 +6,10 @@ weights_path_without_voice_cloning: hf://kyutai/pocket-tts-without-voice-cloning
 # Human evals preferred this model at 0.3 (equal WER/similarity/speech rate).
 default_temperature: 0.3
 
+# Replace characters that are absent from the training data.
+replace_characters:
+  '’': "'"
+  '‘': "'"
 
 timestamp_heads:
 - layer: 3

@@ -42,7 +42,7 @@ The main class for text-to-speech generation.
 Load and return a TTSModel instance with pre-trained weights.
 
 **Parameters:**
-- `language` (str | None): Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`. Defaults to `english`, the same model as `english_2026-09_2`, including its calibrated timestamp heads.
+- `language` (str | None): Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_18m_2026-10"`, `"english_18m_refl_2026-10"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`, `"english_2m_2026-10"`, `"english_2m_refl_2026-10"`, `"english_7m_2026-10"`, `"english_7m_refl_2026-10"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`. Defaults to `english`, the same model as `english_2026-09_2`, including its calibrated timestamp heads.
 - `config` (str | None): Path to model config YAML file. Incompatible with `language`.
 - `temp` (float | None): Sampling temperature for generation. `None` uses the model's recommended default from its config file (`default_temperature`, 0.3).
 - `sampler_decode_steps` (int): Number of generation steps (default: 1)
@@ -303,4 +303,4 @@ scipy.io.wavfile.write("batch_output.wav", model.sample_rate, full_audio.numpy()
 ### Streaming to File
 You can refer to our CLI implementation which can stream audio to a wav file.
 
-For more information about the command-line interface, see the [Generate Documentation](generate.md) or [Serve Documentation](serve.md).
+For more information about the command-line interface, see the [Generate Documentation](../CLI%20Commands/generate.md) or [Serve Documentation](../CLI%20Commands/serve.md).

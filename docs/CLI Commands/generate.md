@@ -19,7 +19,7 @@ This will generate a WAV file `./tts_output.wav` with the default text and voice
 - `--text TEXT`: Text to generate (default: "Hello world! I am Kyutai Pocket TTS. I'm fast enough to run on small CPUs. I hope you'll like me.")
 - `--voice VOICE`: Path to audio conditioning file (voice to clone). Defaults to a built-in voice chosen from the language: `giovanni` (it) for italian, `lola` (es) for spanish, `juergen` (de) for german, `rafael` (pt) for portuguese, `estelle` (fr) for french, `alba` (en) otherwise. With `--config` or `--checkpoint`, defaults to [alba's audio file](https://huggingface.co/kyutai/tts-voices/blob/main/alba-mackenna/casual.wav) instead of the voice name, since the pre-made voices only exist for the released language models. Urls and local paths are supported.
 - `--output-path OUTPUT_PATH`: Output path for generated audio (default: "./tts_output.wav")
-- `--language LANGUAGE`: Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`. Defaults to `english`, the same model as `english_2026-09_2`, including its calibrated timestamp heads.
+- `--language LANGUAGE`: Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_18m_2026-10"`, `"english_18m_refl_2026-10"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`, `"english_2m_2026-10"`, `"english_2m_refl_2026-10"`, `"english_7m_2026-10"`, `"english_7m_refl_2026-10"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`. Defaults to `english`, the same model as `english_2026-09_2`, including its calibrated timestamp heads.
 
 ### Generation Parameters
 
@@ -99,4 +99,4 @@ The generate command always outputs WAV files in the following format:
 - **Bit Depth**: 16-bit PCM
 - **Format**: Standard WAV file
 
-For more advanced usage, see the [Python API documentation](python-api.md) or consider using the [serve command](serve.md) for web-based generation and quick iteration.
+For more advanced usage, see the [Python API documentation](../API%20Reference/python-api.md) or consider using the [serve command](serve.md) for web-based generation and quick iteration.
