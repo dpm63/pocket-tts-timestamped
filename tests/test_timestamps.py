@@ -11,6 +11,7 @@ import torch
 from torch import nn
 
 import pocket_tts_timestamped.timestamps.alignment as timestamp_alignment
+from pocket_tts_timestamped.models.session import Frame, Session, TextWindow
 from pocket_tts_timestamped.models.tts_model import TTSModel
 from pocket_tts_timestamped.modules.attention import StreamingMultiheadAttention
 from pocket_tts_timestamped.modules.rope import RotaryEmbedding
@@ -228,48 +229,66 @@ def test_timestamp_chunk_reuses_prepared_tokens_and_keeps_manual_fallback():
     assert prepared_calls == ["one"]
 
 
-def test_closing_timestamp_generation_joins_workers_and_stops_state_mutation():
+def _fake_session(mimi, *, sample_rate, emb_std=1.0, emb_mean=0.0, time_offset=0.0):
+    """A Session around stand-ins: enough to decode, not to generate."""
+    model = SimpleNamespace(
+        flow_lm=SimpleNamespace(
+            ldim=1, device="cpu", dtype=torch.float32, emb_std=emb_std, emb_mean=emb_mean
+        ),
+        mimi=mimi,
+        config=SimpleNamespace(timestamp_heads=None),
+        sample_rate=sample_rate,
+        _flow_lm_current_end=lambda _state: 0,
+    )
+    return Session(model, {}, time_offset=time_offset)  # ty: ignore[invalid-argument-type]
+
+
+def _window(*values):
+    units = _units(*values)
+    chunk = TimestampTextChunk("".join(values), units, torch.ones(1, len(units)))
+    return TextWindow(chunk, torch.zeros((1, 1), dtype=torch.long), 0)
+
+
+def _frame(index, latent, scores, window):
+    return Frame(index, index, latent, False, scores, window)
+
+
+def test_closing_timestamp_generation_joins_workers_and_stops_state_mutation(monkeypatch):
     model = object.__new__(TTSModel)
     torch.nn.Module.__init__(model)
     model.flow_lm = SimpleNamespace(  # ty: ignore[invalid-assignment]
         conditioner=SimpleNamespace(prepare=lambda _text: torch.zeros((1, 1), dtype=torch.long))
     )
-    model.mimi = SimpleNamespace(encoder_frame_rate=1, frame_rate=1)  # ty: ignore[invalid-assignment]
-    model.config = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        timestamp_heads=[SimpleNamespace(layer=0, head=0)]
-    )
     model._estimate_max_gen_len = lambda _token_count: 1  # ty: ignore[invalid-assignment]
-    model._flow_lm_current_end = lambda _model_state: 0  # ty: ignore[invalid-assignment]
     model_state = {"generation_steps": 0, "decoder_steps": 0}
     threads: list[threading.Thread] = []
 
-    def decoder_worker(latents_queue, result_queue, *_args):
+    class FakeSession:
+        def __init__(self, *_args, **_kwargs):
+            pass
+
+        def set_text(self, *_args, **_kwargs):
+            pass
+
+    def decoder_worker(frames_queue, result_queue, _session, cancel_event):
         threads.append(threading.current_thread())
-        cancel_event = _args[-1]
         while not cancel_event.is_set():
-            item = latents_queue.get()
+            item = frames_queue.get()
             if item is None:
                 return
             model_state["decoder_steps"] += 1
             result_queue.put(("event", AudioChunk(torch.ones(1), 0.0, 0.08)))
 
-    def generate(**kwargs):
-        cancel_event = kwargs["cancel_event"]
-        latents_queue = kwargs["latents_queue"]
+    def generate_frames(_session, _max_len, _after_eos, frames_queue, _results, cancel_event, stop):
+        threads.append(threading.current_thread())
+        while not cancel_event.is_set():
+            model_state["generation_steps"] += 1
+            frames_queue.put(torch.empty(0))
+            cancel_event.wait(0.001)
 
-        def run():
-            while not cancel_event.is_set():
-                model_state["generation_steps"] += 1
-                latents_queue.put((torch.empty(0), torch.ones(1)))
-                cancel_event.wait(0.001)
-
-        thread = threading.Thread(target=run)
-        threads.append(thread)
-        thread.start()
-        return thread
-
+    monkeypatch.setattr("pocket_tts_timestamped.models.tts_model.Session", FakeSession)
     model._decode_timestamped_audio_worker = decoder_worker  # ty: ignore[invalid-assignment]
-    model._generate = generate  # ty: ignore[invalid-assignment]
+    model._generate_session_frames = generate_frames  # ty: ignore[invalid-assignment]
     timestamp_chunk = TimestampTextChunk("one", _units("one"), torch.ones(1, 1))
     generator = TTSModel._generate_audio_with_timestamps_short_text(
         model,
@@ -284,13 +303,16 @@ def test_closing_timestamp_generation_joins_workers_and_stops_state_mutation():
     generator.close()
     state_after_close = model_state.copy()
 
+    assert len(threads) == 2
     assert all(not thread.is_alive() for thread in threads)
     assert model_state == state_after_close
 
 
-def test_timestamp_decoder_passes_time_major_latent_to_mimi():
+def test_session_decode_passes_time_major_scaled_latent_to_mimi():
     class RecordingMimi(nn.Module):
         frame_size = 4
+        frame_rate = 1
+        encoder_frame_rate = 1
 
         def __init__(self):
             super().__init__()
@@ -303,42 +325,69 @@ def test_timestamp_decoder_passes_time_major_latent_to_mimi():
             self.decoded_latents.append(latent)
             return torch.zeros(1, 1, 4)
 
-    model = object.__new__(TTSModel)
-    nn.Module.__init__(model)
     recording_mimi = RecordingMimi()
-    model.max_decoder_frames_per_call = 0
-    model.mimi = recording_mimi  # ty: ignore[invalid-assignment]
-    model.flow_lm = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        emb_std=2.0, emb_mean=1.0
-    )
-    model.config = SimpleNamespace(  # ty: ignore[invalid-assignment]
-        mimi=SimpleNamespace(sample_rate=4)
-    )
-
-    alignment = WordAlignment(_units("one"))
-    latents_queue = queue.Queue()
-    result_queue = queue.Queue()
+    session = _fake_session(recording_mimi, sample_rate=4, emb_std=2.0, emb_mean=1.0)
     latent = torch.arange(3, dtype=torch.float32).view(1, 1, 3)
-    latents_queue.put((latent, torch.ones(1)))
-    latents_queue.put(None)
 
-    with patch("pocket_tts_timestamped.models.tts_model.is_voiced", return_value=True):
-        model._decode_timestamped_audio_worker(
-            latents_queue,
-            result_queue,
-            mimi_sequence_length=2,
-            mimi_steps_per_latent=1,
-            alignment=alignment,
-            time_offset=0.0,
-            cancel_event=threading.Event(),
-        )
+    with patch("pocket_tts_timestamped.models.session.is_voiced", return_value=True):
+        events = session.decode([_frame(0, latent, torch.ones(1), _window("one"))])
 
     assert len(recording_mimi.decoded_latents) == 1
     torch.testing.assert_close(recording_mimi.decoded_latents[0], latent * 2.0 + 1.0)
     assert recording_mimi.decoded_latents[0].shape == (1, 1, 3)
-    results = list(result_queue.queue)
-    assert any(kind == "event" and isinstance(value, AudioChunk) for kind, value in results)
-    assert results[-1] == ("done", 1.0)
+    assert events[0] == WordStart("one", 0, 0.0, 0, 3)
+    assert isinstance(events[-1], AudioChunk)
+    assert session.time == 1.0
+    assert session.finish() == [WordEnd("one", 0, 0.0, 1.0, 0, 3)]
+
+
+def test_session_alignment_continues_across_text_windows():
+    """Replacing the text keeps word progress, matched by word index."""
+
+    class VoicedMimi(nn.Module):
+        frame_size = 4
+        frame_rate = 1
+        encoder_frame_rate = 1
+
+        def decode_from_latent(self, latent, _state):
+            return torch.ones(1, 1, 4 * latent.shape[1])
+
+    session = _fake_session(VoicedMimi(), sample_rate=4)
+    first = _window("one", "two", "three")
+    # The second window drops "one" and adds "four"; indices stay global.
+    units = tuple(
+        _TextUnit(text, 0, len(text), _SourceWord(text, index, begin, begin + len(text)))
+        for text, index, begin in [("two", 1, 3), ("three", 2, 6), ("four", 3, 11)]
+    )
+    second = TextWindow(
+        TimestampTextChunk("two three four", units, torch.ones(1, 3)),
+        torch.zeros((1, 1), dtype=torch.long),
+        0,
+    )
+    latent = torch.zeros(1, 1, 1)
+    with patch("pocket_tts_timestamped.models.session.is_voiced", return_value=True):
+        events = session.decode([_frame(0, latent, torch.tensor([0.9, 0.05, 0.05]), first)])
+        events += session.decode([_frame(1, latent, torch.tensor([0.1, 0.9, 0.0]), first)])
+        # "two" is open when the text changes; "three" takes over in the new window.
+        events += session.decode([_frame(2, latent, torch.tensor([0.1, 0.9, 0.0]), second)])
+        events += session.decode([_frame(3, latent, torch.tensor([0.0, 0.1, 0.9]), second)])
+    events += session.finish()
+
+    words = [
+        (type(event).__name__, event.word, event.word_index)
+        for event in events
+        if not isinstance(event, AudioChunk)
+    ]
+    assert words == [
+        ("WordStart", "one", 0),
+        ("WordEnd", "one", 0),
+        ("WordStart", "two", 1),
+        ("WordEnd", "two", 1),
+        ("WordStart", "three", 2),
+        ("WordEnd", "three", 2),
+        ("WordStart", "four", 3),
+        ("WordEnd", "four", 3),
+    ]
 
 
 def test_selected_attention_matches_manual_text_softmax_and_preserves_output():
@@ -730,6 +779,8 @@ def test_timestamp_decoder_batches_audio_but_aligns_each_frame(
 ):
     class RecordingMimi(nn.Module):
         frame_size = 1920
+        frame_rate = 12.5
+        encoder_frame_rate = 100
 
         def __init__(self):
             super().__init__()
@@ -739,35 +790,28 @@ def test_timestamp_decoder_batches_audio_but_aligns_each_frame(
             self.batch_sizes.append(latent.shape[1])
             return latent[..., :1].transpose(1, 2).repeat_interleave(self.frame_size, dim=-1)
 
+    mimi = RecordingMimi()
+    session = _fake_session(mimi, sample_rate=24000, time_offset=0.4)
     model = object.__new__(TTSModel)
     nn.Module.__init__(model)
-    model.mimi = RecordingMimi()  # ty: ignore[invalid-assignment]
-    model.flow_lm = SimpleNamespace(emb_std=1.0, emb_mean=0.0)  # ty: ignore[invalid-assignment]
-    model.config = SimpleNamespace(mimi=SimpleNamespace(sample_rate=24000))  # ty: ignore[invalid-assignment]
     model.max_decoder_frames_per_call = max_frames
-    monkeypatch.setattr("pocket_tts_timestamped.models.tts_model.init_states", lambda *a, **k: {})
     increments = []
     monkeypatch.setattr(
-        "pocket_tts_timestamped.models.tts_model.increment_steps",
+        "pocket_tts_timestamped.models.session.increment_steps",
         lambda *a, increment: increments.append(increment),
     )
-    latents_queue = queue.Queue()
+    frames_queue = queue.Queue()
     result_queue = queue.Queue()
-    for value, scores in [(0.1, [0.9, 0.1]), (0.2, [0.1, 0.9]), (0.3, [0.1, 0.9])]:
-        latents_queue.put((torch.full((1, 1, 1), value), torch.tensor(scores)))
-    latents_queue.put(None)
-    model._decode_timestamped_audio_worker(
-        latents_queue,
-        result_queue,
-        24,
-        8,
-        WordAlignment(_units("one", "two")),
-        0.4,
-        threading.Event(),
-    )
+    window = _window("one", "two")
+    values = [(0.1, [0.9, 0.1]), (0.2, [0.1, 0.9]), (0.3, [0.1, 0.9])]
+    for index, (value, scores) in enumerate(values):
+        latent = torch.full((1, 1, 1), value)
+        frames_queue.put(_frame(index, latent, torch.tensor(scores), window))
+    frames_queue.put(None)
+    model._decode_timestamped_audio_worker(frames_queue, result_queue, session, threading.Event())
     results = list(result_queue.queue)
     assert all(kind != "error" for kind, _ in results)
-    assert model.mimi.batch_sizes == expected_batches
+    assert mimi.batch_sizes == expected_batches
     assert increments == [8 * size for size in expected_batches]
     events = [value for kind, value in results if kind == "event"]
     audio = [event for event in events if isinstance(event, AudioChunk)]
@@ -783,7 +827,7 @@ def test_timestamp_decoder_batches_audio_but_aligns_each_frame(
     assert [word.start_time for word in words] == pytest.approx([0.4, 0.48])
     assert [word.end_time for word in words] == pytest.approx([0.48, 0.64])
     assert results[-1] == ("done", pytest.approx(0.64))
-    assert latents_queue.unfinished_tasks == 1  # Only the completion sentinel remains.
+    assert frames_queue.unfinished_tasks == 1  # Only the completion sentinel remains.
 
 
 @pytest.mark.parametrize("padding", [False, True])
@@ -901,7 +945,7 @@ def test_timestamp_stream_stop_and_cleanup_leave_caller_event_owned_by_caller(mo
         return torch.full((1, 1, 1), 0.1), torch.tensor(True)
 
     model._run_flow_lm_and_increment_step = run_step  # ty: ignore[invalid-assignment]
-    monkeypatch.setattr("pocket_tts_timestamped.models.tts_model.init_states", lambda *a, **k: {})
+    monkeypatch.setattr("pocket_tts_timestamped.models.session.init_states", lambda *a, **k: {})
     monkeypatch.setattr(
         "pocket_tts_timestamped.models.tts_model.split_into_best_sentences",
         lambda *a, **k: ["one.", "two."],

@@ -4,7 +4,7 @@ import logging
 import unicodedata
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import groupby
 from typing import Literal, Protocol, cast
 
@@ -776,3 +776,28 @@ def build_timestamp_text_chunks(
     """Map prepared generation chunks back to exact lexical spans in source text."""
 
     return list(_iter_timestamp_text_chunks(source_text, chunks, sentencepiece_processor))
+
+
+def offset_timestamp_text_chunk(
+    chunk: TimestampTextChunk, source_text: str, start: int
+) -> TimestampTextChunk:
+    """`chunk`, built from `source_text[start:]`, with word indices and spans in `source_text`.
+
+    `start` should be a word start or whitespace, so that the words before it are whole.
+    """
+    word_offset = len(_lexical_word_spans(source_text[:start]))
+    units = tuple(
+        unit
+        if unit.word is None
+        else replace(
+            unit,
+            word=replace(
+                unit.word,
+                word_index=unit.word.word_index + word_offset,
+                begin=unit.word.begin + start,
+                end=unit.word.end + start,
+            ),
+        )
+        for unit in chunk.units
+    )
+    return replace(chunk, units=units)

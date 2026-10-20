@@ -1,4 +1,5 @@
 from pocket_tts_timestamped.models.model_state import export_model_state
+from pocket_tts_timestamped.models.session import Frame, Session, TextWindow
 from pocket_tts_timestamped.models.tts_model import TTSModel
 from pocket_tts_timestamped.timestamps import (
     AudioChunk,
@@ -17,9 +18,13 @@ from pocket_tts_timestamped.timestamps import (
 # TTSModel.generate_audio_with_timestamps
 # TTSModel.generate_audio_with_timestamps_stream
 # TTSModel.get_state_for_audio_prompt
+# TTSModel.start_session
 
 __all__ = [
     "AudioChunk",
+    "Frame",
+    "Session",
+    "TextWindow",
     "TimestampedAudio",
     "TTSModel",
     "WordEnd",

@@ -1,0 +1,86 @@
+"""Session: frame-by-frame timestamped generation with replaceable text, on a real model."""
+
+import pytest
+import torch
+
+from pocket_tts_timestamped import AudioChunk, TTSModel, WordEnd, WordStart
+from pocket_tts_timestamped.modules.stateful_module import ModelState
+
+ModelAndVoice = tuple[TTSModel, ModelState]
+
+TEXT = "El café está aquí, la casa está allí y el jardín es muy bonito."
+
+
+@pytest.fixture(scope="module")
+def model_and_voice() -> ModelAndVoice:
+    model = TTSModel.load_model(language="spanish")
+    positions = torch.arange(model.sample_rate, dtype=torch.float32)
+    prompt = (0.1 * torch.sin(2 * torch.pi * 220 * positions / model.sample_rate))[None]
+    return model, model.get_state_for_audio_prompt(prompt)
+
+
+def test_replay_continues_like_incremental_generation(model_and_voice: ModelAndVoice) -> None:
+    """Re-reading the retained audio in one pass reproduces the incremental FlowLM state."""
+    model, voice = model_and_voice
+    session = model.start_session(voice)
+    window = session.prepare_text(TEXT)
+    session.set_text(window)
+    torch.manual_seed(0)
+    for _ in range(8):
+        session.generate_frame()
+    rng = torch.get_rng_state()
+    expected = session.generate_frame()
+
+    session.discard(expected)
+    session.set_text(window, history_from=0)
+    torch.set_rng_state(rng)
+    actual = session.generate_frame()
+
+    assert actual.index == expected.index
+    torch.testing.assert_close(actual.latent, expected.latent, atol=1e-4, rtol=1e-4)
+    torch.testing.assert_close(actual.scores, expected.scores, atol=1e-4, rtol=1e-4)
+
+
+def test_window_reports_positions_in_the_whole_text(model_and_voice: ModelAndVoice) -> None:
+    model, voice = model_and_voice
+    session = model.start_session(voice)
+    start = TEXT.index("la casa")
+    window = session.prepare_text(TEXT, start)
+    words = window.chunk.words
+    assert words[0].text == "la" and words[0].word_index == 4
+    assert all(TEXT[word.begin : word.end] == word.text for word in words)
+
+
+def test_text_switch_keeps_one_word_sequence(model_and_voice: ModelAndVoice) -> None:
+    """Expose a prefix, switch to the full text mid-word, replaying the audio: one stream of
+    word events over the whole text, in order and located in it."""
+    model, voice = model_and_voice
+    session = model.start_session(voice)
+    prefix_end = TEXT.index(" la casa")
+    session.set_text(session.prepare_text(TEXT[:prefix_end], append_terminal_punctuation=False))
+    torch.manual_seed(1)
+    events = []
+    switched = False
+    for _ in range(200):
+        frame = session.generate_frame()
+        events += session.decode([frame])
+        if not switched and any(
+            isinstance(event, WordEnd) and event.word == "está" for event in events
+        ):
+            # Like a held-back switch: the prefix's last word ("aquí,") is still unspoken.
+            session.set_text(session.prepare_text(TEXT), history_from=0)
+            switched = True
+        elif switched and frame.eos:
+            break
+    events += session.finish()
+
+    assert switched
+    starts = [event for event in events if isinstance(event, WordStart)]
+    ends = [event for event in events if isinstance(event, WordEnd)]
+    assert [event.word_index for event in starts] == sorted({e.word_index for e in starts})
+    assert [event.word_index for event in ends] == [event.word_index for event in starts]
+    assert max(event.word_index for event in ends) >= 6  # well past the prefix
+    for event in starts + ends:
+        assert TEXT[event.char_start : event.char_end] == event.word
+    audio = [event for event in events if isinstance(event, AudioChunk)]
+    assert [event.start_time for event in audio[1:]] == [event.end_time for event in audio[:-1]]

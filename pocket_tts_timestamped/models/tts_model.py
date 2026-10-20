@@ -20,7 +20,7 @@ from torch.nn import functional as F
 from typing_extensions import Self
 
 from pocket_tts_timestamped.data.audio import audio_read
-from pocket_tts_timestamped.data.audio_utils import convert_audio, end_on_pause
+from pocket_tts_timestamped.data.audio_utils import _fade_in_audio, convert_audio, end_on_pause
 from pocket_tts_timestamped.default_parameters import (
     DEFAULT_LANGUAGE,
     DEFAULT_NOISE_CLAMP,
@@ -30,6 +30,7 @@ from pocket_tts_timestamped.default_parameters import (
 from pocket_tts_timestamped.models.flow_lm import FlowLMModel
 from pocket_tts_timestamped.models.mimi import build_mimi
 from pocket_tts_timestamped.models.model_state import _import_model_state, _is_safetensors_source
+from pocket_tts_timestamped.models.session import Frame, Session, TextWindow
 from pocket_tts_timestamped.models.text_chunking import (
     prepare_text_prompt,
     split_into_best_sentences,
@@ -41,11 +42,7 @@ from pocket_tts_timestamped.modules.stateful_module import (
     init_states,
 )
 from pocket_tts_timestamped.quantization import RECOMMENDED_CONFIG, apply_dynamic_int8
-from pocket_tts_timestamped.timestamps.alignment import (
-    SelectedAttentionCapture,
-    WordAlignment,
-    is_voiced,
-)
+from pocket_tts_timestamped.timestamps.alignment import SelectedAttentionCapture
 from pocket_tts_timestamped.timestamps.records import (
     AudioChunk,
     TimestampedAudio,
@@ -72,9 +69,9 @@ from pocket_tts_timestamped.utils.weights_loading import (
 torch.set_num_threads(1)
 logger = logging.getLogger(__name__)
 
-# Generated latents handed to a Mimi decoder thread; timestamp generation pairs
-# each latent with its reduced attention scores. None closes either stream.
-LatentItem = torch.Tensor | tuple[torch.Tensor, torch.Tensor]
+# Generated latents handed to a Mimi decoder thread; timestamp generation hands over
+# session frames instead. None closes either stream.
+LatentItem = torch.Tensor | Frame
 LatentQueue = queue.Queue[LatentItem | None]
 # Decoder thread -> generator: ("chunk", audio), ("done", None) or ("error", exception).
 ResultQueue = queue.Queue[tuple[str, Any]]
@@ -102,13 +99,6 @@ def _iter_latent_batches(
         yield batch
         if finished:
             return
-
-
-def _fade_in_audio(audio: torch.Tensor, sample_rate: int) -> None:
-    """Suppress the onset click from a fresh Mimi state with a 5 ms fade."""
-    fade = torch.linspace(0, 1, sample_rate // 200).to(audio)
-    n = min(fade.numel(), audio.shape[-1])
-    audio[..., :n] *= fade[:n]
 
 
 def stamp_state_names(tts_model: "TTSModel") -> None:
@@ -628,69 +618,33 @@ class TTSModel(nn.Module):
     @torch.no_grad
     def _decode_timestamped_audio_worker(
         self,
-        latents_queue: LatentQueue,
+        frames_queue: LatentQueue,
         result_queue: ResultQueue,
-        mimi_sequence_length: int,
-        mimi_steps_per_latent: int,
-        alignment: WordAlignment,
-        time_offset: float,
+        session: Session,
         cancel_event: threading.Event,
     ) -> None:
         try:
-            mimi_state = init_states(self.mimi, batch_size=1, sequence_length=mimi_sequence_length)
-            generated_samples = 0
-            first_batch = True
             for batch in _iter_latent_batches(
-                latents_queue, self.max_decoder_frames_per_call, cancel_event
+                frames_queue, self.max_decoder_frames_per_call, cancel_event
             ):
-                latents = []
-                scores = []
+                frames = []
                 for item in batch:
-                    if isinstance(item, torch.Tensor):
-                        raise TypeError("Timestamp audio decoding requires attention scores")
-                    latent, unit_scores = item
-                    latents.append(latent)
-                    scores.append(unit_scores)
-                mimi_decoding_input = (
-                    torch.cat(latents, dim=1) * self.flow_lm.emb_std + self.flow_lm.emb_mean
-                )
-                audio_batch = self.mimi.decode_from_latent(mimi_decoding_input, mimi_state)
-                if first_batch:
-                    _fade_in_audio(audio_batch, self.sample_rate)
-                    first_batch = False
-                increment_steps(
-                    self.mimi, mimi_state, increment=mimi_steps_per_latent * len(latents)
-                )
-
-                for frame_audio, unit_scores in zip(
-                    audio_batch[0, 0].split(self.mimi.frame_size), scores, strict=True
-                ):
+                    if not isinstance(item, Frame):
+                        raise TypeError("Timestamp audio decoding requires session frames")
+                    frames.append(item)
+                for event in session.decode(frames):
                     if cancel_event.is_set():
                         return
-                    frame_start = time_offset + generated_samples / self.sample_rate
-                    generated_samples += frame_audio.shape[-1]
-                    frame_end = time_offset + generated_samples / self.sample_rate
-                    voiced = is_voiced(frame_audio)
-                    events = alignment.process_frame(unit_scores, voiced, frame_start)
-                    for event in events:
-                        result_queue.put(("event", event))
-                    result_queue.put(
-                        (
-                            "event",
-                            AudioChunk(
-                                audio=frame_audio, start_time=frame_start, end_time=frame_end
-                            ),
-                        )
-                    )
-                    latents_queue.task_done()
+                    result_queue.put(("event", event))
+                    if isinstance(event, AudioChunk):
+                        frames_queue.task_done()
 
             if cancel_event.is_set():
                 return
 
-            audio_end = time_offset + generated_samples / self.sample_rate
-            for event in alignment.finish(audio_end):
+            for event in session.finish():
                 result_queue.put(("event", event))
-            result_queue.put(("done", audio_end))
+            result_queue.put(("done", session.time))
         except Exception as error:
             result_queue.put(("error", error))
 
@@ -987,59 +941,38 @@ class TTSModel(nn.Module):
         time_offset: float,
         stop: threading.Event | None = None,
     ) -> Generator[TimestampEvent, None, float]:
-        if copy_state:
-            model_state = copy.deepcopy(model_state)
-
         prepared = self._prepare_timestamp_text_chunk(timestamp_chunk)
-        token_count = prepared.shape[1]
-        if timestamp_chunk.token_to_unit.shape[0] != token_count:
-            raise RuntimeError("Timestamp token mapping does not match FlowLM tokenization")
-        max_gen_len = self._estimate_max_gen_len(token_count)
-        mimi_steps_per_latent = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
-        mimi_sequence_length = max_gen_len * mimi_steps_per_latent
-        text_start = self._flow_lm_current_end(model_state)
-        selected_heads = tuple(
-            (selected.layer, selected.head) for selected in self.config.timestamp_heads or ()
+        max_gen_len = self._estimate_max_gen_len(prepared.shape[1])
+        session = Session(
+            self,
+            model_state,
+            copy_state=copy_state,
+            time_offset=time_offset,
+            decoder_frames=max_gen_len,
         )
-        capture = SelectedAttentionCapture(
-            heads=selected_heads,
-            text_start=text_start,
-            text_end=text_start + token_count,
-            token_to_unit=timestamp_chunk.token_to_unit,
-        )
-        alignment = WordAlignment(timestamp_chunk.units)
+        window = TextWindow(timestamp_chunk, prepared, frames_after_eos)
 
-        latents_queue: LatentQueue = queue.Queue()
+        frames_queue: LatentQueue = queue.Queue()
         result_queue: ResultQueue = queue.Queue()
         cancel_event = threading.Event()
         decoder_thread = threading.Thread(
             target=self._decode_timestamped_audio_worker,
-            args=(
-                latents_queue,
-                result_queue,
-                mimi_sequence_length,
-                mimi_steps_per_latent,
-                alignment,
-                time_offset,
-                cancel_event,
-            ),
+            args=(frames_queue, result_queue, session, cancel_event),
             daemon=True,
         )
         decoder_thread.start()
         generation_thread: threading.Thread | None = None
         audio_end = time_offset
         try:
-            generation_thread = self._generate(
-                model_state=model_state,
-                prepared=prepared,
-                max_gen_len=max_gen_len,
-                frames_after_eos=frames_after_eos,
-                latents_queue=latents_queue,
-                result_queue=result_queue,
-                attention_capture=capture,
-                cancel_event=cancel_event,
-                stop=stop,
+            with display_execution_time("Prompting text"):
+                session.set_text(window, reserve_frames=max_gen_len)
+            generation_thread = threading.Thread(
+                target=self._generate_session_frames,
+                args=(session, max_gen_len, frames_after_eos, frames_queue, result_queue),
+                kwargs={"cancel_event": cancel_event, "stop": stop},
+                daemon=True,
             )
+            generation_thread.start()
 
             while True:
                 kind, value = result_queue.get()
@@ -1052,11 +985,74 @@ class TTSModel(nn.Module):
                     raise value
         finally:
             cancel_event.set()
-            latents_queue.put(None)
+            frames_queue.put(None)
             if generation_thread is not None:
                 generation_thread.join()
             decoder_thread.join()
         return audio_end
+
+    @torch.no_grad
+    def _generate_session_frames(
+        self,
+        session: Session,
+        max_gen_len: int,
+        frames_after_eos: int,
+        frames_queue: LatentQueue,
+        result_queue: ResultQueue,
+        cancel_event: threading.Event,
+        stop: threading.Event | None = None,
+    ) -> None:
+        """Generate one text's frames into `frames_queue`, ending `frames_after_eos` after EOS."""
+
+        def stopped() -> bool:
+            return cancel_event.is_set() or (stop is not None and stop.is_set())
+
+        steps_times: list[float] = []
+        eos_step = None
+        try:
+            for generation_step in range(max_gen_len):
+                if stopped():
+                    break
+                with display_execution_time("Generating latent", print_output=False) as timer:
+                    frame = session.generate_frame()
+                    if stopped():
+                        break
+                    if frame.eos and eos_step is None:
+                        eos_step = generation_step
+                    if eos_step is not None and generation_step >= eos_step + frames_after_eos:
+                        break
+                    frames_queue.put(frame)
+                assert timer.elapsed_time_ms is not None
+                steps_times.append(timer.elapsed_time_ms)
+            else:
+                if os.environ.get("KPOCKET_TTS_ERROR_WITHOUT_EOS", "0") == "1":
+                    raise RuntimeError("Generation reached maximum length without EOS!")
+                logger.warning(
+                    "Maximum generation length reached without EOS, this very often indicates an error."
+                )
+        except Exception as error:
+            logger.error("Error in autoregressive generation: %s", error)
+            # Report the generation error before stopping the decoder. Otherwise
+            # the decoder can publish "done" first and hide the exception.
+            result_queue.put(("error", error))
+        finally:
+            # Wake the decoder on normal completion, cancellation, and generation errors.
+            frames_queue.put(None)
+        if steps_times:
+            logger.info("Average generation step time: %d ms", int(statistics.mean(steps_times)))
+
+    def start_session(self, voice_state: ModelState) -> Session:
+        """Start frame-by-frame timestamped generation in `voice_state`'s voice.
+
+        The session's text can be replaced mid-utterance; see `Session`. `voice_state` is
+        copied, not modified.
+        """
+        if self.config.timestamp_heads is None:
+            raise ValueError(
+                "Word timestamps are not supported by this model config because "
+                "timestamp_heads is absent."
+            )
+        return Session(self, voice_state)
 
     def _prepare_timestamp_text_chunk(self, timestamp_chunk: TimestampTextChunk) -> torch.Tensor:
         if timestamp_chunk.prepared_tokens is None:
@@ -1153,11 +1149,7 @@ class TTSModel(nn.Module):
         latents_queue: LatentQueue,
         result_queue: ResultQueue,
         stop: threading.Event | None = None,
-        attention_capture: SelectedAttentionCapture | None = None,
-        cancel_event: threading.Event | None = None,
     ) -> threading.Thread:
-        if cancel_event is None:
-            cancel_event = stop
         token_count = prepared.shape[1]
         current_end = self._flow_lm_current_end(model_state)
         required_len = current_end + token_count + max_gen_len
@@ -1169,13 +1161,7 @@ class TTSModel(nn.Module):
         def run_generation() -> None:
             try:
                 self._autoregressive_generation(
-                    model_state,
-                    max_gen_len,
-                    frames_after_eos,
-                    latents_queue,
-                    attention_capture=attention_capture,
-                    cancel_event=cancel_event,
-                    stop=stop,
+                    model_state, max_gen_len, frames_after_eos, latents_queue, stop=stop
                 )
             except Exception as error:
                 logger.error("Error in autoregressive generation: %s", error)
@@ -1196,8 +1182,6 @@ class TTSModel(nn.Module):
         max_gen_len: int,
         frames_after_eos: int,
         latents_queue: LatentQueue,
-        attention_capture: SelectedAttentionCapture | None = None,
-        cancel_event: threading.Event | None = None,
         stop: threading.Event | None = None,
     ) -> None:
         backbone_input = torch.full(
@@ -1210,25 +1194,14 @@ class TTSModel(nn.Module):
         eos_step = None
         try:
             for generation_step in range(max_gen_len):
-                if (cancel_event is not None and cancel_event.is_set()) or (
-                    stop is not None and stop.is_set()
-                ):
+                if stop is not None and stop.is_set():
                     break
                 with display_execution_time("Generating latent", print_output=False) as timer:
-                    if attention_capture is not None:
-                        attention_capture.begin_frame()
                     next_latent, is_eos = self._run_flow_lm_and_increment_step(
-                        model_state=model_state,
-                        backbone_input_latents=backbone_input,
-                        attention_capture=attention_capture,
+                        model_state=model_state, backbone_input_latents=backbone_input
                     )
-                    if (cancel_event is not None and cancel_event.is_set()) or (
-                        stop is not None and stop.is_set()
-                    ):
+                    if stop is not None and stop.is_set():
                         break
-                    unit_scores = (
-                        attention_capture.finish_frame() if attention_capture is not None else None
-                    )
                     if (
                         is_eos.item()
                         and eos_step is None
@@ -1239,10 +1212,7 @@ class TTSModel(nn.Module):
                         break
 
                     # Add generated latent to queue for immediate decoding.
-                    if unit_scores is None:
-                        latents_queue.put(next_latent)
-                    else:
-                        latents_queue.put((next_latent, unit_scores))
+                    latents_queue.put(next_latent)
                     backbone_input = next_latent
                 assert timer.elapsed_time_ms is not None
                 steps_times.append(timer.elapsed_time_ms)

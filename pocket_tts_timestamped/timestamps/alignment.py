@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from bisect import bisect_left
 from collections.abc import Iterable
 
 import torch
@@ -123,6 +124,31 @@ class WordAlignment:
         self._next_word_position = 0
         self._open_word_position: int | None = None
         self._open_start: float | None = None
+
+    def continue_from(self, previous: WordAlignment) -> None:
+        """Take over `previous`'s progress, matching words by their index in the source text.
+
+        For text replaced mid-utterance: words already spoken stay spoken and the word being
+        spoken stays open, wherever they now sit in the new text.
+        """
+        indices = [
+            self._word(position).word_index for position in range(len(self._word_unit_indices))
+        ]
+        if previous._next_word_position < len(previous._word_unit_indices):
+            next_index = previous._word(previous._next_word_position).word_index
+        elif previous._word_unit_indices:
+            next_index = previous._word(len(previous._word_unit_indices) - 1).word_index + 1
+        else:
+            next_index = 0
+        self._next_word_position = bisect_left(indices, next_index)
+        self._open_word_position = None
+        self._open_start = None
+        if previous._open_word_position is not None:
+            open_index = previous._word(previous._open_word_position).word_index
+            position = bisect_left(indices, open_index)
+            if position < len(indices) and indices[position] == open_index:
+                self._open_word_position = position
+                self._open_start = previous._open_start
 
     def _word(self, position: int) -> _SourceWord:
         word = self.units[self._word_unit_indices[position]].word

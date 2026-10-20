@@ -144,7 +144,7 @@ def test_decode_audio_worker_fades_in_only_the_first_decoded_frame():
     model.flow_lm = cast(Any, SimpleNamespace(emb_std=1.0, emb_mean=0.0))
     model.config = cast(Any, SimpleNamespace(mimi=SimpleNamespace(sample_rate=24000)))
     model.max_decoder_frames_per_call = 1
-    latents: queue.Queue[torch.Tensor | tuple[torch.Tensor, torch.Tensor] | None] = queue.Queue()
+    latents: tts_model_module.LatentQueue = queue.Queue()
     results: queue.Queue[tuple[str, Any]] = queue.Queue()
     for item in (torch.zeros(1, 1, 32), torch.zeros(1, 1, 32), None):
         latents.put(item)

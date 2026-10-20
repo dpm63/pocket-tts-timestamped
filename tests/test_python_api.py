@@ -8,6 +8,9 @@ from pocket_tts_timestamped.models.tts_model import TTSModel as TTSModelImpl
 def test_public_api_exports_expected_symbols():
     expected_symbols = [
         "AudioChunk",
+        "Frame",
+        "Session",
+        "TextWindow",
         "TimestampedAudio",
         "TTSModel",
         "WordEnd",
@@ -31,6 +34,7 @@ def test_public_api_expected_methods_and_properties():
         "generate_audio_with_timestamps",
         "generate_audio_with_timestamps_stream",
         "get_state_for_audio_prompt",
+        "start_session",
     ):
         assert callable(getattr(TTSModel, method_name))
 
