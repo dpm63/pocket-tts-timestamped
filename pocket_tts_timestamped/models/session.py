@@ -19,7 +19,7 @@ from typing import TYPE_CHECKING
 
 import torch
 
-from pocket_tts_timestamped.data.audio_utils import _fade_in_audio
+from pocket_tts_timestamped.data.audio_utils import fade_in_audio
 from pocket_tts_timestamped.models.text_chunking import prepare_text_prompt
 from pocket_tts_timestamped.modules.stateful_module import ModelState, increment_steps
 from pocket_tts_timestamped.timestamps.alignment import (
@@ -58,13 +58,14 @@ class TextWindow:
 class Frame:
     """One generated 80 ms frame, ready for `Session.decode`."""
 
-    # Position in the session's generated audio, in frames.
+    # Position among the session's kept frames (`Session.latents`), so in its audio.
     index: int
     # Frames generated since the last `set_text`.
     step: int
     # Normalized FlowLM latent, [1, 1, ldim].
     latent: torch.Tensor
-    # The EOS head fired, at least `TTSModel._MIN_FRAMES_BEFORE_EOS` frames after `set_text`.
+    # The EOS head fired, at least `TTSModel._MIN_FRAMES_BEFORE_EOS` frames after the last
+    # `set_text` (with or without history, as the input-streaming policy was tuned).
     eos: bool
     # Timestamp attention reduced to the window's text units; None without timestamp heads.
     scores: torch.Tensor | None
@@ -76,6 +77,10 @@ class Session:
     """Timestamped generation for one utterance; see the module docstring.
 
     Get one from `TTSModel.start_session`. Not thread-safe beyond the generate/decode split.
+
+    With a quantized FlowLM (`quantize=True`), a replay is not equivalent to generating the
+    same frames one by one: dynamic int8 scales activations per call, so every `set_text` with
+    history shifts the state slightly (next latent off by about 0.1 after 8 frames).
     """
 
     def __init__(
@@ -107,7 +112,7 @@ class Session:
             dtype=model.flow_lm.dtype,
         )
         self._mimi_steps = int(model.mimi.encoder_frame_rate / model.mimi.frame_rate)
-        self._mimi_state = model._new_mimi_state(decoder_frames * self._mimi_steps)
+        self._mimi_state, warm = model._new_mimi_state(decoder_frames * self._mimi_steps)
         # Generated latents the caller kept (see `discard`); `set_text` replays them.
         self.latents: list[torch.Tensor] = []
         self._window: TextWindow | None = None
@@ -117,8 +122,9 @@ class Session:
         # Decoder side.
         self._time_offset = time_offset
         self._decoded_samples = 0
+        self._decoded_frames = 0
         # A fresh decoder clicks on its first samples; a warm one (leading-silence vectors) doesn't.
-        self._fade_first_decode = model._warm_mimi_state is None
+        self._fade_first_decode = not warm
         self._alignment: WordAlignment | None = None
         self._aligned_window: TextWindow | None = None
 
@@ -132,9 +138,11 @@ class Session:
     ) -> TextWindow:
         """Prepare `text[start:]` for `set_text`. Word events report positions in `text`.
 
-        `start` should be a word start, such as the `char_start` of a word event.
-        `append_terminal_punctuation` defaults to the model's setting.
+        `start` must be a word start, such as the `char_start` of a word event, or fall
+        between words. `append_terminal_punctuation` defaults to the model's setting.
         """
+        if 0 < start < len(text) and text[start - 1].isalnum() and text[start].isalnum():
+            raise ValueError(f"start={start} falls inside a word")
         model = self.model
         source = text[start:]
         prepared, frames_guess = prepare_text_prompt(
@@ -169,12 +177,17 @@ class Session:
 
         With `history_from`, the FlowLM re-reads `latents[history_from:]` after the text, so
         generation continues the audio; the BOS before them is the plain model BOS. Without
-        it, the next frame starts a new utterance from BOS, with the leading-silence vectors
-        if the model has them. `reserve_frames` sizes the FlowLM cache for that many frames up
-        front; it grows on demand either way.
+        it (or with `history_from == len(latents)`, which keeps no audio), the next frame
+        starts a new utterance from BOS, with the leading-silence vectors if the model has
+        them. `reserve_frames` sizes the FlowLM cache for that many frames up front; it grows
+        on demand either way.
         """
         if window.chunk.token_to_unit.shape[0] != window.tokens.shape[1]:
             raise RuntimeError("Timestamp token mapping does not match FlowLM tokenization")
+        if history_from is not None and not 0 <= history_from <= len(self.latents):
+            raise ValueError(
+                f"history_from={history_from} is outside 0..{len(self.latents)} (kept frames)"
+            )
         state = self._flow_state
         for name, saved in self._rewind_point.items():
             for key, value in saved.items():
@@ -237,25 +250,36 @@ class Session:
 
     def discard(self, frame: Frame) -> None:
         """Drop the last generated frame from the history, e.g. an EOS frame that won't be
-        played. The next call must be `set_text`."""
+        played. It must not have been decoded. The next call must be `set_text`."""
         if not self.latents or frame.index != len(self.latents) - 1:
             raise ValueError("Only the last generated frame can be discarded")
+        if frame.index < self._decoded_frames:
+            raise ValueError("A decoded frame cannot be discarded")
         self.latents.pop()
         self._next_input = None
 
     @torch.no_grad
     def decode(self, frames: Sequence[Frame]) -> list[TimestampEvent]:
-        """Decode frames in generation order, in one Mimi call.
+        """Decode the next frames, in generation order, in one Mimi call.
 
         Returns each frame's word events followed by its `AudioChunk`.
         """
+        if not frames:
+            return []
+        indices = [frame.index for frame in frames]
+        expected = list(range(self._decoded_frames, self._decoded_frames + len(frames)))
+        if indices != expected:
+            raise ValueError(
+                f"Frames must be decoded once each, in order: expected {expected}, got {indices}"
+            )
+        self._decoded_frames += len(frames)
         model = self.model
         latents = torch.cat([frame.latent for frame in frames], dim=1)
         audio = model.mimi.decode_from_latent(
             latents * model.flow_lm.emb_std + model.flow_lm.emb_mean, self._mimi_state
         )
         if self._fade_first_decode:
-            _fade_in_audio(audio, model.sample_rate)
+            fade_in_audio(audio, model.sample_rate)
             self._fade_first_decode = False
         increment_steps(model.mimi, self._mimi_state, increment=self._mimi_steps * len(frames))
         events: list[TimestampEvent] = []
@@ -265,20 +289,25 @@ class Session:
             start = self.time
             self._decoded_samples += frame_audio.shape[-1]
             if frame.scores is not None:
-                alignment = self._alignment_for(frame.window)
+                alignment = self._alignment_for(frame.window, start, events)
                 events.extend(alignment.process_frame(frame.scores, is_voiced(frame_audio), start))
             events.append(AudioChunk(audio=frame_audio, start_time=start, end_time=self.time))
         return events
 
     def finish(self) -> list[WordEnd]:
-        """Close the word being spoken at the end of the decoded audio."""
+        """Close the word being spoken at the end of the decoded audio. No word opens after
+        this, so call it once the utterance is over."""
         return [] if self._alignment is None else self._alignment.finish(self.time)
 
-    def _alignment_for(self, window: TextWindow) -> WordAlignment:
+    def _alignment_for(
+        self, window: TextWindow, at: float, events: list[TimestampEvent]
+    ) -> WordAlignment:
+        """The alignment for `window`, taking over progress when the window changes. A word
+        left open that the new window lacks is closed at `at`, into `events`."""
         if window is not self._aligned_window:
             alignment = WordAlignment(window.chunk.units)
             if self._alignment is not None:
-                alignment.continue_from(self._alignment)
+                events.extend(alignment.continue_from(self._alignment, at))
             self._alignment = alignment
             self._aligned_window = window
         assert self._alignment is not None

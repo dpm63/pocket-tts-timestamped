@@ -21,7 +21,7 @@ from torch.nn import functional as F
 from typing_extensions import Self
 
 from pocket_tts_timestamped.data.audio import audio_read
-from pocket_tts_timestamped.data.audio_utils import _fade_in_audio, convert_audio, end_on_pause
+from pocket_tts_timestamped.data.audio_utils import convert_audio, end_on_pause, fade_in_audio
 from pocket_tts_timestamped.default_parameters import (
     DEFAULT_LANGUAGE,
     DEFAULT_NOISE_CLAMP,
@@ -36,6 +36,7 @@ from pocket_tts_timestamped.models.text_chunking import (
     prepare_text_prompt,
     split_into_best_sentences,
 )
+from pocket_tts_timestamped.modules.attention import StreamingMultiheadAttention
 from pocket_tts_timestamped.modules.stateful_module import (
     ModelState,
     StatefulModule,
@@ -136,8 +137,8 @@ class TTSModel(nn.Module):
     # EOS is ignored on the first frames: before speech starts, the EOS logit of some voices can
     # cross the threshold, and a short text then ends before the word is spoken.
     _MIN_FRAMES_BEFORE_EOS = 6
-    # Decoder state after the leading-silence warm-up; see _load_leading_silence_vectors.
-    _warm_mimi_state: ModelState | None = None
+    # ((device, dtype), decoder state) after the leading-silence warm-up; see _new_mimi_state.
+    _warm_mimi_cache: tuple[tuple[torch.device, torch.dtype], ModelState] | None = None
 
     def __init__(
         self,
@@ -497,29 +498,44 @@ class TTSModel(nn.Module):
                 f"Warm-up latents have shape {tuple(warmup.shape)}, expected [frames, "
                 f"{self.flow_lm.ldim}]"
             )
+        decoder_attention = [
+            module
+            for module in self.mimi.decoder_transformer.modules()
+            if isinstance(module, StreamingMultiheadAttention)
+        ]
+        if any(module.context is None for module in decoder_attention):
+            # The warm state is copied per utterance, so its caches must be able to grow.
+            raise NotImplementedError("Leading-silence warm-up needs a finite-context decoder")
         device = self.flow_lm.bos_emb.device
         self.flow_lm.register_buffer(
             "leading_silence_vectors", vectors.to(device), persistent=False
         )
-        steps_per_latent = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
-        # Windowed decoder caches hold their window whatever the length asked for here.
-        state = init_states(self.mimi, batch_size=1, sequence_length=1 << 20)
-        with torch.no_grad():
-            warmup = warmup[None].to(device=device, dtype=self.flow_lm.emb_std.dtype)
-            self.mimi.decode_from_latent(
-                warmup * self.flow_lm.emb_std + self.flow_lm.emb_mean, state
-            )
-        increment_steps(self.mimi, state, increment=warmup.shape[1] * steps_per_latent)
-        self._warm_mimi_state = state
+        self.flow_lm.register_buffer("leading_silence_warmup", warmup.to(device), persistent=False)
+        self._new_mimi_state(0)  # warm up now rather than on the first utterance
 
-    def _new_mimi_state(self, sequence_length: int) -> ModelState:
-        """A decoder state for a new utterance: warm with leading-silence vectors, else fresh.
+    def _new_mimi_state(self, sequence_length: int) -> tuple[ModelState, bool]:
+        """A decoder state for a new utterance, and whether it is warm.
 
-        Only a fresh one needs the first frame faded in (`_warm_mimi_state is None`).
+        With leading-silence vectors it is a copy of a decoder that has decoded the warm-up
+        latents, built once per device and dtype; otherwise a fresh state, whose first frame
+        needs fading in.
         """
-        if self._warm_mimi_state is not None:
-            return copy.deepcopy(self._warm_mimi_state)
-        return init_states(self.mimi, batch_size=1, sequence_length=sequence_length)
+        warmup = self.flow_lm.leading_silence_warmup
+        if warmup is None:
+            return init_states(self.mimi, batch_size=1, sequence_length=sequence_length), False
+        weight = next(self.mimi.parameters())
+        key = (weight.device, weight.dtype)
+        if self._warm_mimi_cache is None or self._warm_mimi_cache[0] != key:
+            steps_per_latent = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
+            steps = warmup.shape[0] * steps_per_latent
+            state = init_states(self.mimi, batch_size=1, sequence_length=steps)
+            with torch.no_grad():
+                self.mimi.decode_from_latent(
+                    warmup[None] * self.flow_lm.emb_std + self.flow_lm.emb_mean, state
+                )
+            increment_steps(self.mimi, state, increment=steps)
+            self._warm_mimi_cache = (key, state)
+        return copy.deepcopy(self._warm_mimi_cache[1]), True
 
     def _run_flow_lm_and_increment_step(
         self,
@@ -648,11 +664,11 @@ class TTSModel(nn.Module):
         """Worker thread function for decoding audio latents from queue with immediate streaming."""
         try:
             audio_chunks = []
-            mimi_state = self._new_mimi_state(mimi_sequence_length)
+            mimi_state, warm = self._new_mimi_state(mimi_sequence_length)
             # A fresh Mimi decoder state puts a small step (about -41 dBFS) in its first samples, heard
             # as a click at the start of every chunk: fade the first 5 ms in. (The longer burst some
             # voices produced came from prompts ending on speech, handled by end_on_pause.)
-            first_batch = self._warm_mimi_state is None
+            first_batch = not warm
             for batch in _iter_latent_batches(latents_queue, self.max_decoder_frames_per_call):
                 latents = []
                 for item in batch:
@@ -668,7 +684,7 @@ class TTSModel(nn.Module):
                 t = time.monotonic()
                 audio_frame = self.mimi.decode_from_latent(mimi_decoding_input, mimi_state)
                 if first_batch:
-                    _fade_in_audio(audio_frame, self.sample_rate)
+                    fade_in_audio(audio_frame, self.sample_rate)
                     first_batch = False
                 increment_steps(
                     self.mimi, mimi_state, increment=mimi_steps_per_latent * len(latents)
@@ -1271,39 +1287,38 @@ class TTSModel(nn.Module):
         )
         steps_times: list[float] = []
         eos_step = None
-        try:
-            for generation_step in range(max_gen_len):
+        for generation_step in range(max_gen_len):
+            if stop is not None and stop.is_set():
+                break
+            with display_execution_time("Generating latent", print_output=False) as timer:
+                next_latent, is_eos = self._run_flow_lm_and_increment_step(
+                    model_state=model_state, backbone_input_latents=backbone_input
+                )
                 if stop is not None and stop.is_set():
                     break
-                with display_execution_time("Generating latent", print_output=False) as timer:
-                    next_latent, is_eos = self._run_flow_lm_and_increment_step(
-                        model_state=model_state, backbone_input_latents=backbone_input
-                    )
-                    if stop is not None and stop.is_set():
-                        break
-                    if (
-                        is_eos.item()
-                        and eos_step is None
-                        and generation_step >= self._MIN_FRAMES_BEFORE_EOS
-                    ):
-                        eos_step = generation_step
-                    if eos_step is not None and generation_step >= eos_step + frames_after_eos:
-                        break
+                if (
+                    is_eos.item()
+                    and eos_step is None
+                    and generation_step >= self._MIN_FRAMES_BEFORE_EOS
+                ):
+                    eos_step = generation_step
+                if eos_step is not None and generation_step >= eos_step + frames_after_eos:
+                    break
 
-                    # Add generated latent to queue for immediate decoding.
-                    latents_queue.put(next_latent)
-                    backbone_input = next_latent
-                assert timer.elapsed_time_ms is not None
-                steps_times.append(timer.elapsed_time_ms)
-            else:
-                if os.environ.get("KPOCKET_TTS_ERROR_WITHOUT_EOS", "0") == "1":
-                    raise RuntimeError("Generation reached maximum length without EOS!")
-                logger.warning(
-                    "Maximum generation length reached without EOS, this very often indicates an error."
-                )
-        finally:
-            # Wake the decoder on normal completion, cancellation, and generation errors.
-            latents_queue.put(None)
+                # Add generated latent to queue for immediate decoding.
+                latents_queue.put(next_latent)
+                backbone_input = next_latent
+            assert timer.elapsed_time_ms is not None
+            steps_times.append(timer.elapsed_time_ms)
+        else:
+            if os.environ.get("KPOCKET_TTS_ERROR_WITHOUT_EOS", "0") == "1":
+                raise RuntimeError("Generation reached maximum length without EOS!")
+            logger.warning(
+                "Maximum generation length reached without EOS, this very often indicates an error."
+            )
+        # On normal completion and cancellation. A generation error propagates instead, and
+        # the caller reports it before waking the decoder.
+        latents_queue.put(None)
         if steps_times:
             logger.info("Average generation step time: %d ms", int(statistics.mean(steps_times)))
 

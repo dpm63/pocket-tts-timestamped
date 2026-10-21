@@ -92,6 +92,55 @@ def test_generate_reports_autoregressive_errors_before_decoder_done():
     assert latents_queue.get(timeout=1) is None
 
 
+def test_generation_error_is_reported_before_the_decoder_is_woken():
+    """With the real loop: the decoder must not see the end of the stream before the error."""
+    error = RuntimeError("generation failed")
+    order: list[str] = []
+
+    class RecordingQueue(queue.Queue[object]):
+        def __init__(self, name: str):
+            super().__init__()
+            self.name = name
+
+        def put(self, item: object, block: bool = True, timeout: float | None = None) -> None:
+            order.append(f"{self.name}:{item[0] if isinstance(item, tuple) else item}")
+            super().put(item, block, timeout)
+
+    def run_step(**kwargs: object) -> None:
+        if "text_tokens" not in kwargs:  # the text prompt passes; the first frame fails
+            raise error
+
+    model = object.__new__(TTSModel)
+    torch.nn.Module.__init__(model)
+
+    class FakeFlow(torch.nn.Module):
+        ldim = 1
+        dtype = torch.float32
+
+        def __init__(self):
+            super().__init__()
+            self.weight = torch.nn.Parameter(torch.zeros(1))
+
+    model.flow_lm = cast(Any, FakeFlow())
+    model._flow_lm_current_end = lambda model_state: 0  # ty: ignore[invalid-assignment]
+    model._expand_kv_cache = lambda model_state, sequence_length: None  # ty: ignore[invalid-assignment]
+    model._run_flow_lm_and_increment_step = run_step  # ty: ignore[invalid-assignment]
+    latents_queue, result_queue = RecordingQueue("latents"), RecordingQueue("results")
+
+    generation_thread = TTSModel._generate(
+        model,
+        {},
+        torch.zeros((1, 1), dtype=torch.long),
+        1,
+        1,
+        cast(Any, latents_queue),
+        cast(Any, result_queue),
+    )
+    generation_thread.join(timeout=5)
+
+    assert order[:2] == ["results:error", "latents:None"]
+
+
 def test_ordinary_decoder_rejects_timestamp_scores_in_drained_batch(
     monkeypatch: pytest.MonkeyPatch,
 ):
@@ -101,8 +150,7 @@ def test_ordinary_decoder_rejects_timestamp_scores_in_drained_batch(
             mimi=object(),
             config=SimpleNamespace(mimi=SimpleNamespace(sample_rate=24000)),
             max_decoder_frames_per_call=0,
-            _new_mimi_state=lambda _sequence_length: {},
-            _warm_mimi_state=None,
+            _new_mimi_state=lambda _sequence_length: ({}, False),
         ),
     )
     latents_queue = queue.Queue()
@@ -142,7 +190,9 @@ def test_decode_audio_worker_fades_in_only_the_first_decoded_frame():
     model = object.__new__(TTSModel)
     torch.nn.Module.__init__(model)
     model.mimi = cast(Any, FakeMimi())
-    model.flow_lm = cast(Any, SimpleNamespace(emb_std=1.0, emb_mean=0.0))
+    model.flow_lm = cast(
+        Any, SimpleNamespace(emb_std=1.0, emb_mean=0.0, leading_silence_warmup=None)
+    )
     model.config = cast(Any, SimpleNamespace(mimi=SimpleNamespace(sample_rate=24000)))
     model.max_decoder_frames_per_call = 1
     latents: tts_model_module.LatentQueue = queue.Queue()

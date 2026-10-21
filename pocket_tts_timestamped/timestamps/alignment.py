@@ -124,31 +124,41 @@ class WordAlignment:
         self._next_word_position = 0
         self._open_word_position: int | None = None
         self._open_start: float | None = None
+        # Source index of the next word, carried over from earlier text (see continue_from).
+        self._carried_next_index = 0
 
-    def continue_from(self, previous: WordAlignment) -> None:
+    def continue_from(self, previous: WordAlignment, at: float) -> list[WordEnd]:
         """Take over `previous`'s progress, matching words by their index in the source text.
 
         For text replaced mid-utterance: words already spoken stay spoken and the word being
-        spoken stays open, wherever they now sit in the new text.
+        spoken stays open, wherever they now sit in the new text. If the new text lacks the
+        open word, it is closed at `at` and its `WordEnd` returned.
         """
         indices = [
             self._word(position).word_index for position in range(len(self._word_unit_indices))
         ]
-        if previous._next_word_position < len(previous._word_unit_indices):
-            next_index = previous._word(previous._next_word_position).word_index
-        elif previous._word_unit_indices:
-            next_index = previous._word(len(previous._word_unit_indices) - 1).word_index + 1
-        else:
-            next_index = 0
-        self._next_word_position = bisect_left(indices, next_index)
+        self._carried_next_index = previous._next_word_index()
+        self._next_word_position = bisect_left(indices, self._carried_next_index)
         self._open_word_position = None
         self._open_start = None
-        if previous._open_word_position is not None:
-            open_index = previous._word(previous._open_word_position).word_index
-            position = bisect_left(indices, open_index)
-            if position < len(indices) and indices[position] == open_index:
-                self._open_word_position = position
-                self._open_start = previous._open_start
+        if previous._open_word_position is None:
+            return []
+        open_index = previous._word(previous._open_word_position).word_index
+        position = bisect_left(indices, open_index)
+        if position < len(indices) and indices[position] == open_index:
+            self._open_word_position = position
+            self._open_start = previous._open_start
+            return []
+        return [previous._close(at)]
+
+    def _next_word_index(self) -> int:
+        """Source index of the next word to open, including progress carried in."""
+        if self._next_word_position < len(self._word_unit_indices):
+            return max(self._carried_next_index, self._word(self._next_word_position).word_index)
+        if self._word_unit_indices:
+            last = self._word(len(self._word_unit_indices) - 1).word_index
+            return max(self._carried_next_index, last + 1)
+        return self._carried_next_index
 
     def _word(self, position: int) -> _SourceWord:
         word = self.units[self._word_unit_indices[position]].word

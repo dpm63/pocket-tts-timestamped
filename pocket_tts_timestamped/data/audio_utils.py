@@ -58,7 +58,7 @@ def end_on_pause(
     return torch.cat([wav, pause], dim=-1)
 
 
-def _fade_in_audio(audio: torch.Tensor, sample_rate: int) -> None:
+def fade_in_audio(audio: torch.Tensor, sample_rate: int) -> None:
     """Suppress the onset click from a fresh Mimi state with a 5 ms fade."""
     fade = torch.linspace(0, 1, sample_rate // 200).to(audio)
     n = min(fade.numel(), audio.shape[-1])

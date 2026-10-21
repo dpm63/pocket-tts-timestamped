@@ -204,6 +204,34 @@ def test_silence_detection_supports_non_contiguous_float_inputs(monkeypatch, dty
     assert is_voiced(samples)
 
 
+def test_session_checks_history_and_frame_order():
+    class VoicedMimi(nn.Module):
+        frame_size = 4
+        frame_rate = 1
+        encoder_frame_rate = 1
+
+        def decode_from_latent(self, latent, _state):
+            return torch.ones(1, 1, 4 * latent.shape[1])
+
+    session = _fake_session(VoicedMimi(), sample_rate=4)
+    window = _window("one")
+    with pytest.raises(ValueError, match="outside 0..0"):
+        session.set_text(window, history_from=1)
+    with pytest.raises(ValueError, match="inside a word"):
+        session.prepare_text("hello world", 2)
+    frames = [_frame(index, torch.zeros(1, 1, 1), None, window) for index in range(3)]
+    session.latents.extend(frame.latent for frame in frames)
+    assert session.decode([]) == []
+    with pytest.raises(ValueError, match="in order"):
+        session.decode([frames[1]])
+    session.decode(frames[:2])
+    with pytest.raises(ValueError, match="in order"):
+        session.decode(frames[:1])
+    session.decode(frames[2:])
+    with pytest.raises(ValueError, match="decoded frame"):
+        session.discard(frames[2])
+
+
 def test_timestamp_chunk_reuses_prepared_tokens_and_keeps_manual_fallback():
     model = object.__new__(TTSModel)
     torch.nn.Module.__init__(model)
@@ -239,8 +267,7 @@ def _fake_session(mimi, *, sample_rate, emb_std=1.0, emb_mean=0.0, time_offset=0
         config=SimpleNamespace(timestamp_heads=None),
         sample_rate=sample_rate,
         _flow_lm_current_end=lambda _state: 0,
-        _new_mimi_state=lambda _sequence_length: {},
-        _warm_mimi_state=None,
+        _new_mimi_state=lambda _sequence_length: ({}, False),
     )
     return Session(model, {}, time_offset=time_offset)  # ty: ignore[invalid-argument-type]
 
@@ -341,6 +368,31 @@ def test_session_decode_passes_time_major_scaled_latent_to_mimi():
     assert isinstance(events[-1], AudioChunk)
     assert session.time == 1.0
     assert session.finish() == [WordEnd("one", 0, 0.0, 1.0, 0, 3)]
+
+
+def test_alignment_closes_an_open_word_the_new_text_lacks():
+    previous = WordAlignment(_units("one", "two", "three"))
+    previous.process_frame(torch.tensor([0.9, 0.05, 0.05]), True, 0.0)
+    previous.process_frame(torch.tensor([0.1, 0.9, 0.0]), True, 0.08)  # "two" is open
+    later = tuple(_TextUnit("three", 0, 5, _SourceWord("three", 2, 6, 11)) for _ in range(1))
+    alignment = WordAlignment(later)
+    assert alignment.continue_from(previous, 0.16) == [WordEnd("two", 1, 0.08, 0.16, 3, 6)]
+    assert alignment.process_frame(torch.tensor([1.0]), True, 0.16) == [
+        WordStart("three", 2, 0.16, 6, 11)
+    ]
+
+
+def test_alignment_progress_survives_a_text_without_words():
+    first = WordAlignment(_units("one", "two"))
+    first.process_frame(torch.tensor([0.9, 0.1]), True, 0.0)
+    first.process_frame(torch.tensor([0.1, 0.9]), True, 0.08)
+    first.process_frame(torch.tensor([0.1, 0.9]), False, 0.16)  # "two" spoken
+    punctuation = WordAlignment((_TextUnit("...", 0, 3, None),))
+    punctuation.continue_from(first, 0.24)
+    again = WordAlignment(_units("one", "two", "three"))
+    again.continue_from(punctuation, 0.32)
+    events = again.process_frame(torch.tensor([0.0, 0.1, 0.9]), True, 0.32)
+    assert [(type(event).__name__, event.word) for event in events] == [("WordStart", "three")]
 
 
 def test_session_alignment_continues_across_text_windows():
@@ -903,6 +955,7 @@ def test_timestamp_stream_stop_and_cleanup_leave_caller_event_owned_by_caller(mo
         device = torch.device("cpu")
         emb_std = 1.0
         emb_mean = 0.0
+        leading_silence_warmup = None
 
         def __init__(self):
             super().__init__()

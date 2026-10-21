@@ -91,6 +91,8 @@ class FlowLMModel(nn.Module):
     # Leading-silence vectors ([num_layers + 1, dim]): added to the residual stream on a lone
     # BOS step, so the first frame starts speech (TTSModel.load_model(skip_leading_silence=...)).
     leading_silence_vectors: torch.Tensor | None
+    # Normalized silence latents the Mimi decoder warms up on when the vectors are loaded.
+    leading_silence_warmup: torch.Tensor | None
 
     def __init__(
         self,
@@ -120,6 +122,7 @@ class FlowLMModel(nn.Module):
         self.register_buffer("emb_mean", torch.zeros(ldim, dtype=dtype))
         self.bos_emb = torch.nn.Parameter(torch.randn(ldim, dtype=dtype))
         self.register_buffer("leading_silence_vectors", None, persistent=False)
+        self.register_buffer("leading_silence_warmup", None, persistent=False)
         self.insert_bos_before_voice = insert_bos_before_voice
         if self.insert_bos_before_voice:
             # Add BOS value that's to be inserted before the voice condition

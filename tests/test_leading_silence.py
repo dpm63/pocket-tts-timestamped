@@ -8,6 +8,7 @@ import torch
 
 from pocket_tts_timestamped import AudioChunk, TTSModel
 from pocket_tts_timestamped.models.flow_lm import FlowLMModel
+from pocket_tts_timestamped.models.tts_model import _beside_config
 from pocket_tts_timestamped.modules.stateful_module import (
     ModelState,
     StatefulModule,
@@ -126,6 +127,40 @@ def test_vector_files_are_validated(spanish: tuple[TTSModel, ModelState], tmp_pa
     with pytest.raises(ValueError, match="Leading-silence vectors have shape"):
         model._load_leading_silence_vectors(wrong)
     assert model.flow_lm.leading_silence_vectors is None
+
+
+def test_warm_decoder_follows_the_model_dtype(
+    spanish: tuple[TTSModel, ModelState], tmp_path: Path
+) -> None:
+    """`model.to(...)` must reach the warm decoder state too (dtype stands in for device)."""
+    baseline_model, _ = spanish
+    shape = (baseline_model.config.flow_lm.transformer.num_layers + 1, baseline_model.flow_lm.dim)
+    path = write_vectors(baseline_model, tmp_path / "zero.safetensors", torch.zeros(shape))
+    model = TTSModel.load_model(language="spanish", skip_leading_silence=path)
+    model.to(torch.float64)
+    state, warm = model._new_mimi_state(0)
+    assert warm
+    caches = [module_state["cache"] for module_state in state.values() if "cache" in module_state]
+    assert caches and all(cache.dtype == torch.float64 for cache in caches)
+    latent = torch.zeros(1, 1, model.flow_lm.ldim, dtype=torch.float64)
+    assert model.mimi.decode_from_latent(latent, state).dtype == torch.float64
+
+
+@pytest.mark.parametrize(
+    ("config", "expected"),
+    [
+        ("hf://owner/repo/configs/x.yaml@abc", "hf://owner/repo/configs/v.safetensors@abc"),
+        ("hf://owner/repo/x.yaml", "hf://owner/repo/v.safetensors"),
+        ("https://example.com/c/x.yaml", "https://example.com/c/v.safetensors"),
+    ],
+)
+def test_vectors_resolve_beside_the_config(config: str, expected: str) -> None:
+    assert _beside_config(config, "v.safetensors") == expected
+
+
+def test_vectors_resolve_beside_a_local_config(tmp_path: Path) -> None:
+    config = str(tmp_path / "x.yaml")
+    assert Path(_beside_config(config, "v.safetensors")) == tmp_path / "v.safetensors"
 
 
 def test_checkpoint_without_vectors_fails_before_loading_weights(
