@@ -18,7 +18,7 @@ from pocket_tts_timestamped.utils.utils import _ORIGINS_OF_PREDEFINED_VOICES
 
 DATASET = "geli95us/pocket-tts-leading-silence"
 # Pinned for reproducible training; update it with the dataset.
-REVISION = "main"
+REVISION = "54ed03388f4e6059a493e4fb23c8cf348a53ed8d"
 LANGUAGES = ("english", "french", "german", "spanish", "italian", "portuguese", "dutch")
 
 

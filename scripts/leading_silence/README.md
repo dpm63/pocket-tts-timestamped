@@ -42,7 +42,7 @@ Vectors ship only if:
 
 ## Data
 
-The [dataset repo](https://huggingface.co/datasets/geli95us/pocket-tts-leading-silence) (`data.py`):
+A private [dataset repo](https://huggingface.co/datasets/geli95us/pocket-tts-leading-silence), pinned in `data.py`; `HF_TOKEN` must be able to read it:
 
 - voices: the built-in voices plus Kokoro voice variants;
 - texts: LibriTTS sentences;
@@ -59,8 +59,9 @@ python -m scripts.leading_silence train --config english --out work/english [--s
 python -m scripts.leading_silence publish --work work [--open-pr]
 ```
 
-Training needs the voice-cloning weights (`HF_TOKEN`). On a 4-core CPU, a 6-layer model takes
-about TODO min.
+Training needs the voice-cloning weights (`HF_TOKEN`). For a 6-layer model at 4 threads on a desktop
+CPU, training takes about 9 min (rollouts 2, whole-sequence rollouts 3, training 4), plus the
+checks.
 
 The workflow runs these steps on `workflow_dispatch` (choose `models`; `force` retrains). It
 opens a pull request that adds `pocket_tts_timestamped/config/leading_silence/<name>.safetensors`
