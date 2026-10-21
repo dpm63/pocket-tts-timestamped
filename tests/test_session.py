@@ -16,9 +16,9 @@ TEXT = "El café está aquí, la casa está allí y el jardín es muy bonito."
 @pytest.fixture(scope="module")
 def model_and_voice() -> ModelAndVoice:
     model = TTSModel.load_model(language="spanish")
-    positions = torch.arange(model.sample_rate, dtype=torch.float32)
-    prompt = (0.1 * torch.sin(2 * torch.pi * 220 * positions / model.sample_rate))[None]
-    return model, model.get_state_for_audio_prompt(prompt)
+    # A built-in voice works with the weights without voice cloning too (CI has no HF_TOKEN).
+    # A sine-tone prompt doesn't: that model then stops after a few words.
+    return model, model.get_state_for_audio_prompt("lola")
 
 
 def test_replay_continues_like_incremental_generation(model_and_voice: ModelAndVoice) -> None:
