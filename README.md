@@ -88,44 +88,6 @@ session.set_text(session.prepare_text(text), history_from=0)  # keep all the aud
 `generate_frame` and `decode` can run on two threads. Word indices and character spans always
 refer to the whole text, even when `prepare_text(text, start)` only exposes part of it.
 
-Each word event also carries `char_start` and `char_end`, its position in the text you
-passed: `text[event.char_start:event.char_end] == event.word`.
-
-### Start speaking immediately
-
-Pocket TTS usually generates 0.5-1 s of silence before it starts speaking.
-`skip_leading_silence` adds learned vectors to the model on the first generation step, so speech
-starts on the first frame, at no cost per frame. It is off by default, which keeps generation
-identical to upstream Pocket TTS.
-
-```python
-model = TTSModel.load_model(skip_leading_silence="english_leading_silence.safetensors")
-```
-
-Pass a vector file (safetensors with `vectors` and `warmup_latents`), or `True` for the vectors
-that ship with the checkpoint. No checkpoint ships them yet.
-
-### Replacing the text mid-utterance
-
-A session generates frame by frame, and its text can be replaced while it speaks: the model
-re-reads the new text and the audio generated so far, and the audio continues as one stream.
-This is what streaming text from an LLM needs.
-
-```python
-session = model.start_session(voice)
-text = "Hello there, how"
-session.set_text(session.prepare_text(text, append_terminal_punctuation=False))
-for _ in range(10):
-    for event in session.decode([session.generate_frame()]):
-        ...  # AudioChunk, WordStart and WordEnd, as in the stream above
-
-text += " are you today?"
-session.set_text(session.prepare_text(text), history_from=0)  # keep all the audio so far
-```
-
-`generate_frame` and `decode` can run on two threads. Word indices and character spans always
-refer to the whole text, even when `prepare_text(text, start)` only exposes part of it.
-
 ### Checkpoint support
 All official Pocket TTS checkpoints are supported, but accuracy differs between them. Selection results, MAE is measured against CrisperWhisper 2.0 medium
 | Checkpoint | Heads | Skip samples | Skip words | Skip rate | MAE samples | MAE words | Start/end MAE |
