@@ -7,6 +7,7 @@ import scipy.io.wavfile
 import torch
 
 from pocket_tts_timestamped import TTSModel
+from pocket_tts_timestamped.data.audio import audio_read
 from scripts.leading_silence.pipeline import silence_latents
 from scripts.leading_silence.sequences import (
     encode_voice,
@@ -50,7 +51,9 @@ def test_training_forward_matches_native_vectors(tmp_path: Path) -> None:
     tensors = {"vectors": steer.vectors().detach(), "warmup_latents": silence_latents(model, 8)}
     safetensors.torch.save_file(tensors, str(vectors))
     model._load_leading_silence_vectors(vectors)
-    state_for_voice = model.get_state_for_audio_prompt(voice_file)
+    # A tensor rather than the file: CI loads the weights without voice cloning, which refuse
+    # audio files but take tensors. The same samples the training path read.
+    state_for_voice = model.get_state_for_audio_prompt(audio_read(voice_file)[0])
     captured: list[torch.Tensor] = []
     handle = flow_lm.out_norm.register_forward_hook(lambda m, a, out: captured.append(out[0, -1]))
     try:
