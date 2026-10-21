@@ -64,8 +64,9 @@ class Frame:
     step: int
     # Normalized FlowLM latent, [1, 1, ldim].
     latent: torch.Tensor
-    # The EOS head fired, at least `TTSModel._MIN_FRAMES_BEFORE_EOS` frames after the last
-    # `set_text` (with or without history, as the input-streaming policy was tuned).
+    # The EOS head fired, once the FlowLM has read at least `TTSModel._MIN_FRAMES_BEFORE_EOS`
+    # frames of this utterance's audio (replayed history included). Before speech starts, the
+    # EOS logit of some voices can cross the threshold; after a replay it doesn't.
     eos: bool
     # Timestamp attention reduced to the window's text units; None without timestamp heads.
     scores: torch.Tensor | None
@@ -119,6 +120,8 @@ class Session:
         self._capture: SelectedAttentionCapture | None = None
         self._next_input: torch.Tensor | None = None
         self._step = 0
+        # Latents replayed by the last `set_text`; with `_step`, the audio the FlowLM has read.
+        self._replayed = 0
         # Decoder side.
         self._time_offset = time_offset
         self._decoded_samples = 0
@@ -231,6 +234,7 @@ class Session:
         )
         self._window = window
         self._step = 0
+        self._replayed = len(history)
 
     @torch.no_grad
     def generate_frame(self) -> Frame:
@@ -251,7 +255,8 @@ class Session:
             index=len(self.latents),
             step=self._step,
             latent=latent,
-            eos=bool(is_eos.item()) and self._step >= self.model._MIN_FRAMES_BEFORE_EOS,
+            eos=bool(is_eos.item())
+            and self._replayed + self._step >= self.model._MIN_FRAMES_BEFORE_EOS,
             scores=capture.finish_frame() if capture is not None else None,
             window=self._window,
         )

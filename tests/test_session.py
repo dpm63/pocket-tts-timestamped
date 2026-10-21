@@ -41,6 +41,30 @@ def test_replay_continues_like_incremental_generation(model_and_voice: ModelAndV
     torch.testing.assert_close(actual.scores, expected.scores, atol=1e-4, rtol=1e-4)
 
 
+def test_eos_gate_counts_replayed_audio(
+    model_and_voice: ModelAndVoice, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """EOS is ignored until the FlowLM has read 6 frames of audio, replayed ones included."""
+    model, voice = model_and_voice
+    run_flow_lm = model._run_flow_lm_and_increment_step
+
+    def always_eos(**kwargs: object) -> tuple[torch.Tensor, torch.Tensor]:
+        latent, _ = run_flow_lm(**kwargs)
+        return latent, torch.tensor([True])
+
+    monkeypatch.setattr(model, "_run_flow_lm_and_increment_step", always_eos)
+    session = model.start_session(voice)
+    window = session.prepare_text(TEXT)
+    session.set_text(window)
+    assert [session.generate_frame().eos for _ in range(7)] == [False] * 6 + [True]
+
+    session.set_text(window, history_from=4)  # replays 3 frames
+    assert [session.generate_frame().eos for _ in range(4)] == [False] * 3 + [True]
+
+    session.set_text(window)  # a new utterance from BOS
+    assert not any(session.generate_frame().eos for _ in range(6))
+
+
 def test_window_reports_positions_in_the_whole_text(model_and_voice: ModelAndVoice) -> None:
     model, voice = model_and_voice
     session = model.start_session(voice)
