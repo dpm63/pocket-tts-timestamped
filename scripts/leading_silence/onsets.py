@@ -45,7 +45,8 @@ def speech_start(db: NDArray[np.float64]) -> int:
         end = onset + 1
         while end < len(db) and db[end] > PAUSE_DB:
             end += 1
-        breath = end < len(db) and end - onset <= MAX_BREATH and db[onset:end].max() <= SPEECH_DB
+        quiet = bool((db[onset:end] <= SPEECH_DB).all())
+        breath = end < len(db) and end - onset <= MAX_BREATH and quiet
         if not breath:
             return onset
         start = end
