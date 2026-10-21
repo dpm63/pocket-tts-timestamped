@@ -229,7 +229,7 @@ Start frame-by-frame timestamped generation whose text can be replaced mid-utter
 
 **Returns:**
 - `Session`, with:
-  - `prepare_text(text, start=0, append_terminal_punctuation=None)`: prepare `text[start:]`; word indices and spans still refer to all of `text`. `start` should be a word start.
+  - `prepare_text(text, start=0, append_terminal_punctuation=None, capitalize_first_letter=None, pad_short_text=None)`: prepare `text[start:]`; word indices and spans still refer to all of `text`. `start` must be a word start. Options left as `None` follow the model's settings, except that a window starting mid-text is neither capitalized nor padded.
   - `set_text(window, history_from=None, reserve_frames=0)`: generate under the prepared text from now on. With `history_from`, the model re-reads `session.latents[history_from:]`, so the audio continues; without it, the next frame starts a new utterance.
   - `generate_frame()`: generate the next 80 ms frame (`Frame`, with `eos` once the model wants to stop).
   - `discard(frame)`: drop the last generated frame from the history; call `set_text` next.

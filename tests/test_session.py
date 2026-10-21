@@ -49,6 +49,9 @@ def test_window_reports_positions_in_the_whole_text(model_and_voice: ModelAndVoi
     words = window.chunk.words
     assert words[0].text == "la" and words[0].word_index == 4
     assert all(TEXT[word.begin : word.end] == word.text for word in words)
+    # A window that starts mid-text continues a sentence: no capital, unlike the text start.
+    assert window.chunk.text.startswith("la casa")
+    assert session.prepare_text("el café").chunk.text.startswith("El café")
 
 
 def test_text_switch_keeps_one_word_sequence(model_and_voice: ModelAndVoice) -> None:

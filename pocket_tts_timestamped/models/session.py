@@ -134,25 +134,37 @@ class Session:
         return self._time_offset + self._decoded_samples / self.model.sample_rate
 
     def prepare_text(
-        self, text: str, start: int = 0, *, append_terminal_punctuation: bool | None = None
+        self,
+        text: str,
+        start: int = 0,
+        *,
+        append_terminal_punctuation: bool | None = None,
+        capitalize_first_letter: bool | None = None,
+        pad_short_text: bool | None = None,
     ) -> TextWindow:
         """Prepare `text[start:]` for `set_text`. Word events report positions in `text`.
 
         `start` must be a word start, such as the `char_start` of a word event, or fall
-        between words. `append_terminal_punctuation` defaults to the model's setting.
+        between words. Options left as None follow the model's settings, except that a window
+        starting mid-text (`start > 0`) is neither capitalized nor padded: it continues a
+        sentence rather than beginning one.
         """
         if 0 < start < len(text) and text[start - 1].isalnum() and text[start].isalnum():
             raise ValueError(f"start={start} falls inside a word")
         model = self.model
+        if append_terminal_punctuation is None:
+            append_terminal_punctuation = model.append_terminal_punctuation
+        if capitalize_first_letter is None:
+            capitalize_first_letter = model.capitalize_first_letter and start == 0
+        if pad_short_text is None:
+            pad_short_text = model.pad_with_spaces_for_short_inputs and start == 0
         source = text[start:]
         prepared, frames_guess = prepare_text_prompt(
             source,
-            model.pad_with_spaces_for_short_inputs,
+            pad_short_text,
             model.remove_semicolons,
-            model.append_terminal_punctuation
-            if append_terminal_punctuation is None
-            else append_terminal_punctuation,
-            model.capitalize_first_letter,
+            append_terminal_punctuation,
+            capitalize_first_letter,
             model.replace_characters,
         )
         chunk = next(
