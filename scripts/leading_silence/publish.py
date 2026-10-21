@@ -165,6 +165,13 @@ def publish(args: argparse.Namespace) -> None:
     command("git", "config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
     command("git", "switch", "-c", branch)
     command("git", "add", "--", str(CONFIGS_DIR))
+    staged = set(
+        subprocess.check_output(["git", "diff", "--cached", "--name-only"], text=True).split()
+    )
+    for name in published:
+        path = (CONFIGS_DIR / VECTORS_DIR / f"{name}.safetensors").relative_to(Path.cwd())
+        if path.as_posix() not in staged:
+            raise RuntimeError(f"{path} was not staged (ignored by git?); configs would dangle")
     command("git", "commit", "-m", "Add leading-silence vectors for " + ", ".join(published))
     command("git", "push", "origin", f"HEAD:{branch}")
     command(
