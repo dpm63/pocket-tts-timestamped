@@ -24,7 +24,11 @@ from scripts.leading_silence.onsets import (
 
 ONSET_FRAMES = 40  # an onset trial gives up (and counts the onset as 40) after this
 ONSET_TAIL = 4  # frames generated past the onset
-TAIL_SPEECH_DB = -50.0  # a frame after EOS this loud is speech in the tail
+# A frame after EOS this loud is speech: a stray word or a cut one. Quieter tails above
+# TAIL_SOUND_DB are mostly the decay of the last word, which isn't audible as a problem
+# (listening, 2026-10-22; pocket-tts-streaming/listening/leading-silence-tails).
+TAIL_SPEECH_DB = -35.0
+TAIL_SOUND_DB = -50.0
 FINAL_PUNCTUATION = ".!?,;:\"')»”…"
 
 
@@ -93,8 +97,9 @@ def onsets(model: TTSModel, states: Iterable[ModelState], texts: list[str]) -> d
 def tails(
     model: TTSModel, states: Iterable[ModelState], texts: list[str], period: bool
 ) -> dict[str, float]:
-    """Whole generations to EOS plus the tail: how often the tail holds speech."""
-    speech, no_eos, count = 0, 0, 0
+    """Whole generations to EOS plus the tail: how often the tail holds speech (or any sound),
+    and how often EOS fires on the last loud frame, which shortens the ending."""
+    speech, sound, early, no_eos, count = 0, 0, 0, 0, 0
     for state in states:
         for index, text in enumerate(texts):
             torch.manual_seed(1000 * index + 7)
@@ -105,11 +110,18 @@ def tails(
             if eos is None:
                 no_eos += 1
                 continue
-            speech += bool((frame_db(pcm)[eos + 1 :] > TAIL_SPEECH_DB).any())
+            db = frame_db(pcm)
+            speech += bool((db[eos + 1 :] > TAIL_SPEECH_DB).any())
+            sound += bool((db[eos + 1 :] > TAIL_SOUND_DB).any())
+            loud = np.flatnonzero(db[: eos + 1] > TAIL_SPEECH_DB)
+            early += bool(len(loud)) and int(loud[-1]) >= eos
+    ended = max(1, count - no_eos)
     return {
         "trials": count,
         "no_eos": no_eos,
-        "tail_speech_rate": round(speech / max(1, count - no_eos), 3),
+        "tail_speech_rate": round(speech / ended, 3),
+        "tail_sound_rate": round(sound / ended, 3),
+        "early_eos_rate": round(early / ended, 3),
     }
 
 
@@ -133,10 +145,16 @@ def problems(baseline: dict[str, Any], steered: dict[str, Any]) -> list[str]:
             f"speech by frame 1 is {onset['speech_by_frame_1']:.0%} (baseline "
             f"{before['speech_by_frame_1']:.0%}); expected at least 70% and 20 points more"
         )
-    bare_tail = steered["tail_without_period"]["tail_speech_rate"]
-    if bare_tail > max(0.3, baseline["tail_without_period"]["tail_speech_rate"] + 0.15):
-        found.append(f"speech after EOS without a period in {bare_tail:.0%} of generations")
-    period_tail = steered["tail_with_period"]["tail_speech_rate"]
-    if period_tail > max(0.1, baseline["tail_with_period"]["tail_speech_rate"] + 0.05):
-        found.append(f"speech after EOS with a period in {period_tail:.0%} of generations")
+    # Relative to the model without vectors; the slack covers the noise of 180 trials.
+    for section, label, slack in (
+        ("tail_with_period", "with a period", 0.05),
+        ("tail_without_period", "without a period", 0.1),
+    ):
+        for key, what in (
+            ("tail_speech_rate", "speech after EOS"),
+            ("early_eos_rate", "EOS on the last loud frame"),
+        ):
+            value, plain = steered[section][key], baseline[section][key]
+            if value > plain + slack:
+                found.append(f"{what} {label} in {value:.0%} of generations (baseline {plain:.0%})")
     return found

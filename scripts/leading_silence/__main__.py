@@ -20,7 +20,7 @@ def main() -> None:
     train = commands.add_parser("train", help="train, export and check one checkpoint")
     train.add_argument("--config", required=True)
     train.add_argument("--out", required=True)
-    train.add_argument("--eval-texts", type=int, default=10)
+    train.add_argument("--eval-texts", type=int, default=20)
     train.add_argument("--threads", type=int, default=0, help="torch threads (0: all CPUs)")
     train.add_argument("--smoke", action="store_true", help="tiny run, never published")
     train.set_defaults(run=pipeline.run)

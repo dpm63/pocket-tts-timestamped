@@ -96,8 +96,10 @@ def _row(name: str, report: dict[str, Any]) -> str:
     return (
         f"| {name} | {pair('onsets', 'speech_by_frame_1')} | "
         f"{pair('onsets', 'onset_p95', percent=False)} | {pair('onsets', 'abrupt_rate')} | "
+        f"{pair('tail_with_period', 'tail_speech_rate')} | "
         f"{pair('tail_without_period', 'tail_speech_rate')} | "
-        f"{pair('tail_with_period', 'tail_speech_rate')} |"
+        f"{pair('tail_with_period', 'early_eos_rate')} | "
+        f"{pair('tail_without_period', 'early_eos_rate')} |"
     )
 
 
@@ -116,9 +118,14 @@ def publish(args: argparse.Namespace) -> None:
         "fork's own generation, without and with the exported file, on the dataset's test "
         "voices and texts.",
         "",
+        "Speech after EOS: a frame after EOS louder than -35 dB. Early EOS: EOS fires on the last "
+        "frame louder than -35 dB, which shortens the ending. Both are measured on whole "
+        "generations, with and without a final period.",
+        "",
         "| Checkpoint | Speech by frame 1 | Onset p95 (frames) | Abrupt starts "
-        "| Speech after EOS, no period | Speech after EOS, period |",
-        "| --- | --- | --- | --- | --- | --- |",
+        "| Speech after EOS, period | Speech after EOS, no period "
+        "| Early EOS, period | Early EOS, no period |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     published, failed, smoke = [], [], False
     for item in matrix:

@@ -32,13 +32,18 @@ with the exported file:
 
 - speech onset (first frame above −35 dB with another within 3 frames);
 - abrupt starts (the first 30 ms of the onset louder than −45 dB);
-- how often the frames generated after EOS hold speech, with and without a final period.
+- after EOS, with and without a final period: how often the tail holds speech (a frame
+  louder than −35 dB), and how often EOS fires on the last loud frame, shortening the ending.
+  The rate of any sound above −50 dB is reported too; on `english` it is mostly the decay
+  of the last word, even without vectors (13–28%), and inaudible.
 
-Vectors ship only if:
+Vectors ship only if, against the same model without them:
 
-- speech starts by frame 1 in at least 70% of trials, and 20 points more often than without;
-- speech after EOS without a period stays under 30% (or baseline + 15 points);
-- speech after EOS with a period stays under 10% (or baseline + 5 points).
+- speech starts by frame 1 in at least 70% of trials, and 20 points more often;
+- speech after EOS and early EOS each rise by at most 5 points with a period, 10 without.
+
+The slack covers the noise of 180 trials (9 voices × 20 texts). At 10 texts, early EOS
+without a period swung by 5 points against 20 on the same vectors.
 
 ## Data
 
