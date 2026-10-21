@@ -1,5 +1,7 @@
 """Session: frame-by-frame timestamped generation with replaceable text, on a real model."""
 
+from typing import Any
+
 import pytest
 import torch
 
@@ -48,7 +50,7 @@ def test_eos_gate_counts_replayed_audio(
     model, voice = model_and_voice
     run_flow_lm = model._run_flow_lm_and_increment_step
 
-    def always_eos(**kwargs: object) -> tuple[torch.Tensor, torch.Tensor]:
+    def always_eos(**kwargs: Any) -> tuple[torch.Tensor, torch.Tensor]:  # noqa: ANN401
         latent, _ = run_flow_lm(**kwargs)
         return latent, torch.tensor([True])
 

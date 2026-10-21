@@ -1,0 +1,137 @@
+name: Train leading-silence vectors
+
+# Trains the vectors that `skip_leading_silence=True` loads, for each checkpoint that has none
+# (scripts/leading_silence/README.md). Checkpoints are grouped by weights hash, so aliases
+# share one file. Passing vectors are published as a pull request into the branch that ran.
+
+on:
+  workflow_dispatch:
+    inputs:
+      models:
+        description: Comma-separated config names; blank selects all configs
+        type: string
+        default: english
+      force:
+        description: Retrain checkpoints that already have vectors
+        type: boolean
+        default: false
+      publish:
+        description: Open a pull request with the vectors that pass their checks
+        type: boolean
+        default: true
+      smoke:
+        description: Tiny run to test the workflow (never published)
+        type: boolean
+        default: false
+      eval_texts:
+        description: Test texts per test voice for the onset and tail checks
+        type: number
+        default: 10
+  push:
+    # First runs of the workflow itself, before it reaches main; remove once it has.
+    branches: [input-streaming]
+    paths:
+      - .github/workflows/leading-silence.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: leading-silence-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  HF_TOKEN: ${{ secrets.HF_TOKEN }}
+
+jobs:
+  plan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    outputs:
+      matrix: ${{ steps.plan.outputs.matrix }}
+      active: ${{ steps.plan.outputs.active }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - run: uv pip install --python .venv/bin/python pyyaml
+      - id: plan
+        env:
+          MODELS: ${{ github.event_name == 'push' && 'english' || inputs.models }}
+          FORCE: ${{ inputs.force }}
+        run: |
+          args=(--models "$MODELS")
+          if [ "$FORCE" = true ]; then args+=(--force); fi
+          .venv/bin/python -m scripts.leading_silence plan "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: leading-silence-plan
+          path: leading-silence-work/plan.json
+
+  train:
+    needs: plan
+    if: needs.plan.outputs.active == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - name: Train, export and check
+        env:
+          CONFIG: ${{ matrix.config }}
+          KEY: ${{ matrix.key }}
+          SMOKE: ${{ inputs.smoke }}
+          EVAL_TEXTS: ${{ inputs.eval_texts || 10 }}
+        run: |
+          args=(--config "$CONFIG" --out "leading-silence-work/results/$KEY")
+          args+=(--eval-texts "$EVAL_TEXTS")
+          if [ "$SMOKE" = true ]; then args+=(--smoke); fi
+          .venv/bin/python -m scripts.leading_silence train "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: leading-silence-${{ matrix.key }}
+          path: leading-silence-work/results/${{ matrix.key }}
+          if-no-files-found: ignore
+          retention-days: 90
+
+  publish:
+    needs: [plan, train]
+    if: always() && needs.plan.outputs.active == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v7
+      - run: uv sync --no-dev --python 3.11
+      - run: uv pip install --python .venv/bin/python pyyaml
+      - uses: actions/download-artifact@v4
+        with:
+          name: leading-silence-plan
+          path: leading-silence-work
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: leading-silence-*
+          path: leading-silence-work/downloads
+      - name: Collect results and open the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISH: ${{ github.event_name == 'push' || inputs.publish }}
+        run: |
+          mkdir -p leading-silence-work/results
+          for folder in leading-silence-work/downloads/leading-silence-*; do
+            key="${folder##*/leading-silence-}"
+            if [ "$key" != plan ]; then mv "$folder" "leading-silence-work/results/$key"; fi
+          done
+          args=()
+          if [ "$PUBLISH" = true ]; then args+=(--open-pr); fi
+          .venv/bin/python -m scripts.leading_silence publish "${args[@]}"
+          cat leading-silence-work/pr-body.md >> "$GITHUB_STEP_SUMMARY"
