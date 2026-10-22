@@ -120,6 +120,86 @@ class _LinearKVCacheBackend:
         return k_attn, v_attn, pos_k, offset
 
 
+# Slots a windowed cache holds beyond its `context`. When they fill up, the keys still inside
+# the window move to the front, so attention spans at most `context + _WINDOW_HEADROOM` keys.
+_WINDOW_HEADROOM = 64
+
+
+# - Windowed cache (finite `context`, e.g. the Mimi decoder): the linear schema plus
+#   - start: torch.long[B]  # absolute time index held by cache slot 0
+class _WindowedKVCacheBackend(_LinearKVCacheBackend):
+    """Linear cache that drops keys no query can reach any more.
+
+    With a finite `context`, a query at position `p` only sees keys after `p - context`.
+    The linear cache keeps every key and masks the old ones out, so its memory grows with the
+    sequence and each step attends over all of it. This cache stores at most
+    `context + _WINDOW_HEADROOM` slots and gives the same output: keys keep their absolute
+    positions for RoPE and the mask. A call that writes more steps than that grows the cache
+    for itself; the next call that fits shrinks it back.
+    """
+
+    def __init__(self, num_heads: int, dim_per_head: int, context: int):
+        super().__init__(num_heads, dim_per_head)
+        self.context = context
+
+    def init_state(
+        self, batch_size: int, sequence_length: int, device: torch.device, dtype: torch.dtype
+    ) -> dict[str, torch.Tensor]:
+        capacity = min(sequence_length, self.context + _WINDOW_HEADROOM)
+        state = super().init_state(batch_size, capacity, device, dtype)
+        state["start"] = torch.zeros(batch_size, dtype=torch.long, device=device)
+        return state
+
+    def append_and_get(
+        self, k: torch.Tensor, v: torch.Tensor, state: dict[str, torch.Tensor] | None
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        if state is None:
+            return super().append_and_get(k, v, state)
+        offset_tensor = state["offset"]
+        if offset_tensor.numel() > 1 and not torch.all(offset_tensor == offset_tensor.view(-1)[0]):
+            raise ValueError("Windowed cache offset must be identical across batch.")
+        # One host sync for both positions.
+        offset, start = torch.stack(
+            [offset_tensor.view(-1)[0], state["start"].view(-1)[0]]
+        ).tolist()
+        steps = k.shape[1]
+        cache = state["cache"]
+        bound = self.context + _WINDOW_HEADROOM
+        if offset - start + steps > cache.shape[2] or cache.shape[2] > bound:
+            # The first new query, at `offset`, reaches back to `offset - context + 1`.
+            keep = max(start, offset - self.context + 1)
+            kept = offset - keep
+            capacity = max(kept + steps, bound)
+            if capacity != cache.shape[2]:
+                # Grow for a call that writes more steps than the cache holds, or shrink back
+                # to the bound after one.
+                resized = torch.full(
+                    (*cache.shape[:2], capacity, *cache.shape[3:]),
+                    float("NaN"),
+                    device=cache.device,
+                    dtype=cache.dtype,
+                )
+                resized[:, :, :kept] = cache[:, :, keep - start : offset - start]
+                state["cache"] = cache = resized
+            elif keep > start:
+                cache[:, :, :kept] = cache[:, :, keep - start : offset - start].clone()
+            state["start"].fill_(keep)
+            start = keep
+        index = offset - start
+        cache[0, :, index : index + steps] = k
+        cache[1, :, index : index + steps] = v
+        k_attn = cache[0, :, : index + steps].permute(0, 2, 1, 3)
+        v_attn = cache[1, :, : index + steps].permute(0, 2, 1, 3)
+        pos_k = torch.arange(start, offset + steps, device=k_attn.device, dtype=torch.long)
+        pos_k = pos_k.view(1, -1).expand(k_attn.shape[0], -1)
+        pad = state.get("pad")
+        if pad is not None and bool((pad > 0).any()):
+            # Same shift as the linear cache: padded slots get negative positions.
+            pos_k = pos_k - pad[:, None]
+            offset_tensor = offset_tensor - pad
+        return k_attn, v_attn, pos_k, offset_tensor
+
+
 class StreamingMultiheadAttention(StatefulModule):
     """Similar to `nn.MultiheadAttention` but with support for streaming.
 
@@ -155,7 +235,11 @@ class StreamingMultiheadAttention(StatefulModule):
         self.num_kv_heads = num_kv_heads or num_heads
         assert self.attn_dim % num_heads == 0 and num_heads % self.num_kv_heads == 0
         self.dim_per_head = self.attn_dim // num_heads
-        self._cache_backend = _LinearKVCacheBackend(self.num_kv_heads, self.dim_per_head)
+        self._cache_backend = (
+            _LinearKVCacheBackend(self.num_kv_heads, self.dim_per_head)
+            if context is None
+            else _WindowedKVCacheBackend(self.num_kv_heads, self.dim_per_head, context)
+        )
 
         kv_dim = self.dim_per_head * self.num_kv_heads
         self.in_proj = nn.Linear(embed_dim, self.attn_dim + 2 * kv_dim, bias=False)
