@@ -111,9 +111,10 @@ def test_readme_patch_separates_cohorts_and_uses_shared_reference() -> None:
             }
         },
     )
-    assert "1500 | 1,000 |" in output
-    assert "500 | 100 |" in output
-    assert "Selection results, MAE is measured against CrisperWhisper 2.0 medium" in output
+    assert "| English 2026-09 | L1H2 | 1,000 |" in output
+    assert "| German | L3H6 | 2,610 | 0.000% | 2,610 | 64 ms |" in output
+    assert "Skip samples" not in output
+    assert "500 for MAE, which is measured against CrisperWhisper 2.0 medium" in output
     assert "Reference |" not in output
     assert "Large (legacy)" not in output
     assert update_readme(output, {}) == output
