@@ -21,6 +21,7 @@ from pocket_tts_timestamped.default_parameters import (
     DEFAULT_NOISE_CLAMP,
     DEFAULT_SAMPLER_DECODE_STEPS,
     MAX_TOKEN_PER_CHUNK,
+    MAX_TOKEN_PER_CHUNK_TEACHER_FORCED,
     get_default_text_for_language,
     get_default_voice_for_language,
 )
@@ -75,7 +76,7 @@ def _loaded_model() -> TTSModel:
 async def root() -> str:
     """Serve the frontend."""
     static_path = Path(__file__).parent / "static" / "index.html"
-    content = static_path.read_text()
+    content = static_path.read_text(encoding="utf-8")
     # Replace the placeholder with the actual default text prompt
     origin = str(_loaded_model().origin)
     print(origin)
@@ -218,8 +219,8 @@ def serve(
         str | None,
         typer.Option(
             help="Language for the TTS model. "
-            "'english_2026-01', 'english_2026-04', 'english_2026-04_24l', 'english_2026-09', 'english_2026-09_2', 'english_2026-09_24l', 'english_drifting_26-09', 'english_18m_2026-10', 'english_18m_refl_2026-10', 'english_7m_2026-10', 'english_7m_refl_2026-10', 'english_2m_2026-10', 'english_2m_refl_2026-10', 'english', 'french', 'french_24l', 'german', 'german_24l', 'portuguese', 'portuguese_24l', 'italian', 'italian_24l', 'spanish', 'spanish_24l', 'dutch', 'dutch_24l'."
-            " Incompatible with the config argument. Default is 'english', which is the same model as 'english_2026-09_2'.",
+            "'english_2026-01', 'english_2026-04', 'english_2026-04_24l', 'english_2026-09', 'english_2026-09_2', 'english_2026-09_24l', 'english_2026-10', 'english_drifting_26-09', 'english_18m_2026-10', 'english_18m_refl_2026-10', 'english_7m_2026-10', 'english_7m_refl_2026-10', 'english_2m_2026-10', 'english_2m_refl_2026-10', 'english', 'french', 'french_24l', 'german', 'german_24l', 'portuguese', 'portuguese_24l', 'italian', 'italian_24l', 'spanish', 'spanish_24l', 'dutch', 'dutch_24l'."
+            " Incompatible with the config argument. Default is 'english', which is the same model as 'english_2026-10'.",
             show_default=False,
         ),
     ] = None,
@@ -284,8 +285,8 @@ def generate(
         typer.Option(
             help=(
                 "Language for the TTS model. "
-                "'english_2026-01', 'english_2026-04', 'english_2026-04_24l', 'english_2026-09', 'english_2026-09_2', 'english_2026-09_24l', 'english_drifting_26-09', 'english_18m_2026-10', 'english_18m_refl_2026-10', 'english_7m_2026-10', 'english_7m_refl_2026-10', 'english_2m_2026-10', 'english_2m_refl_2026-10', 'english', 'french', 'french_24l', 'german', 'german_24l', 'portuguese', 'portuguese_24l', 'italian', 'italian_24l', 'spanish', 'spanish_24l', 'dutch', 'dutch_24l'."
-                " Incompatible with the config argument. Default is 'english', which is the same model as 'english_2026-09_2'. "
+                "'english_2026-01', 'english_2026-04', 'english_2026-04_24l', 'english_2026-09', 'english_2026-09_2', 'english_2026-09_24l', 'english_2026-10', 'english_drifting_26-09', 'english_18m_2026-10', 'english_18m_refl_2026-10', 'english_7m_2026-10', 'english_7m_refl_2026-10', 'english_2m_2026-10', 'english_2m_refl_2026-10', 'english', 'french', 'french_24l', 'german', 'german_24l', 'portuguese', 'portuguese_24l', 'italian', 'italian_24l', 'spanish', 'spanish_24l', 'dutch', 'dutch_24l'."
+                " Incompatible with the config argument. Default is 'english', which is the same model as 'english_2026-10'. "
                 "The '24l' variants are bigger models, "
                 "not distilled yet and here only as preview. They're not the final "
                 "models for those languages."
@@ -332,8 +333,19 @@ def generate(
     ] = "./tts_output.wav",
     device: Annotated[str, typer.Option(help="Device to use")] = "cpu",
     max_tokens: Annotated[
-        int, typer.Option(help="Maximum number of tokens per chunk.")
-    ] = MAX_TOKEN_PER_CHUNK,
+        int | None,
+        typer.Option(
+            help=f"Maximum number of tokens per chunk. Defaults to {MAX_TOKEN_PER_CHUNK}, "
+            f"or {MAX_TOKEN_PER_CHUNK_TEACHER_FORCED} with --teacher-force-previous-chunk."
+        ),
+    ] = None,
+    teacher_force_previous_chunk: Annotated[
+        bool,
+        typer.Option(
+            help="Generate each chunk of a long text as the continuation of the previous one "
+            "(its audio teacher-forced) instead of starting afresh from the voice prompt."
+        ),
+    ] = False,
     quantize: Annotated[
         bool, typer.Option(help="Apply int8 quantization to reduce memory usage")
     ] = False,
@@ -374,6 +386,7 @@ def generate(
             text_to_generate=text,
             frames_after_eos=frames_after_eos,
             max_tokens=max_tokens,
+            teacher_force_previous_chunk=teacher_force_previous_chunk,
         )
 
         stream_audio_chunks(output_path, audio_chunks, tts_model.config.mimi.sample_rate)
@@ -407,8 +420,8 @@ def export_voice(
         typer.Option(
             help=(
                 "Language for the TTS model. "
-                "'english_2026-01', 'english_2026-04', 'english_2026-04_24l', 'english_2026-09', 'english_2026-09_2', 'english_2026-09_24l', 'english_drifting_26-09', 'english_18m_2026-10', 'english_18m_refl_2026-10', 'english_7m_2026-10', 'english_7m_refl_2026-10', 'english_2m_2026-10', 'english_2m_refl_2026-10', 'english', 'french', 'french_24l', 'german', 'german_24l', 'portuguese', 'portuguese_24l', 'italian', 'italian_24l', 'spanish', 'spanish_24l', 'dutch', 'dutch_24l'."
-                " Incompatible with the config argument. Default is 'english', which is the same model as 'english_2026-09_2'. "
+                "'english_2026-01', 'english_2026-04', 'english_2026-04_24l', 'english_2026-09', 'english_2026-09_2', 'english_2026-09_24l', 'english_2026-10', 'english_drifting_26-09', 'english_18m_2026-10', 'english_18m_refl_2026-10', 'english_7m_2026-10', 'english_7m_refl_2026-10', 'english_2m_2026-10', 'english_2m_refl_2026-10', 'english', 'french', 'french_24l', 'german', 'german_24l', 'portuguese', 'portuguese_24l', 'italian', 'italian_24l', 'spanish', 'spanish_24l', 'dutch', 'dutch_24l'."
+                " Incompatible with the config argument. Default is 'english', which is the same model as 'english_2026-10'. "
                 "The '24l' variants are bigger models, "
                 "not distilled yet and here only as preview."
             ),

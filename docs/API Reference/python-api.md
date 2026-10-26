@@ -42,7 +42,7 @@ The main class for text-to-speech generation.
 Load and return a TTSModel instance with pre-trained weights.
 
 **Parameters:**
-- `language` (str | None): Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_18m_2026-10"`, `"english_18m_refl_2026-10"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`, `"english_2m_2026-10"`, `"english_2m_refl_2026-10"`, `"english_7m_2026-10"`, `"english_7m_refl_2026-10"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`. Defaults to `english`, the same model as `english_2026-09_2`, including its calibrated timestamp heads.
+- `language` (str | None): Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_18m_2026-10"`, `"english_18m_refl_2026-10"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`, `"english_2026-10"`, `"english_2m_2026-10"`, `"english_2m_refl_2026-10"`, `"english_7m_2026-10"`, `"english_7m_refl_2026-10"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`. Defaults to `english`, the same model as `english_2026-10`.
 - `config` (str | None): Path to model config YAML file. Incompatible with `language`.
 - `temp` (float | None): Sampling temperature for generation. `None` uses the model's recommended default from its config file (`default_temperature`, 0.3).
 - `sampler_decode_steps` (int): Number of generation steps (default: 1)
@@ -125,15 +125,17 @@ voice_state = model.get_state_for_audio_prompt(
 )
 ```
 
-##### `generate_audio(model_state, text_to_generate, frames_after_eos=None, copy_state=True)`
+##### `generate_audio(model_state, text_to_generate, max_tokens=None, frames_after_eos=None, copy_state=True, teacher_force_previous_chunk=False)`
 
 Generate complete audio tensor from text input.
 
 **Parameters:**
 - `model_state` (dict): Model state from `get_state_for_audio_prompt()`
 - `text_to_generate` (str): Text to convert to speech
+- `max_tokens` (int | None): Long texts are generated in chunks of at most this many tokens (default: None, which means 50, or 25 with `teacher_force_previous_chunk`)
 - `frames_after_eos` (int | None): Frames to generate after EOS detection (default: None)
 - `copy_state` (bool): Whether to copy the state (default: True)
+- `teacher_force_previous_chunk` (bool): Generate each chunk after the first as the continuation of the previous one: the text of both chunks is given and the previous chunk's generated audio latents are teacher-forced before the new frames are generated. By default every chunk starts afresh from the voice prompt. Slightly slower (one prefill of the previous chunk per chunk). Forces `copy_state=True` (default: False)
 
 **Returns:**
 - `torch.Tensor`: Audio 1D tensor with shape [samples]
@@ -153,7 +155,7 @@ print(f"Generated audio shape: {audio.shape}")
 print(f"Audio duration: {audio.shape[-1] / model.sample_rate:.2f} seconds")
 ```
 
-##### `generate_audio_stream(model_state, text_to_generate, frames_after_eos=None, copy_state=True)`
+##### `generate_audio_stream(model_state, text_to_generate, max_tokens=None, frames_after_eos=None, copy_state=True, stop=None, teacher_force_previous_chunk=False)`
 
 Generate audio streaming chunks from text input.
 
@@ -177,7 +179,7 @@ for chunk in model.generate_audio_stream(voice_state, "Long text content..."):
     # Could save chunks to file or play in real-time
 ```
 
-##### `generate_audio_with_timestamps(model_state, text_to_generate, frames_after_eos=None, copy_state=True)`
+##### `generate_audio_with_timestamps(model_state, text_to_generate, max_tokens=None, frames_after_eos=None, copy_state=True, teacher_force_previous_chunk=False)`
 
 Generate complete audio with word timestamps.
 
@@ -194,7 +196,7 @@ for word in result.words:
     print(word.word, word.start_time, word.end_time)
 ```
 
-##### `generate_audio_with_timestamps_stream(model_state, text_to_generate, frames_after_eos=None, copy_state=True, stop=None)`
+##### `generate_audio_with_timestamps_stream(model_state, text_to_generate, max_tokens=None, frames_after_eos=None, copy_state=True, stop=None, teacher_force_previous_chunk=False)`
 
 Generate audio streaming chunks and word timestamps from text input.
 

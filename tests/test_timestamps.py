@@ -11,7 +11,7 @@ import torch
 from torch import nn
 
 import pocket_tts_timestamped.timestamps.alignment as timestamp_alignment
-from pocket_tts_timestamped.models.tts_model import TTSModel
+from pocket_tts_timestamped.models.tts_model import TTSModel, _PreparedTextChunk
 from pocket_tts_timestamped.modules.attention import StreamingMultiheadAttention
 from pocket_tts_timestamped.modules.rope import RotaryEmbedding
 from pocket_tts_timestamped.modules.text_conditioner import build_tokenizer
@@ -243,7 +243,7 @@ def test_closing_timestamp_generation_joins_workers_and_stops_state_mutation():
     model_state = {"generation_steps": 0, "decoder_steps": 0}
     threads: list[threading.Thread] = []
 
-    def decoder_worker(latents_queue, result_queue, *_args):
+    def decoder_worker(latents_queue, result_queue, *_args, **_kwargs):
         threads.append(threading.current_thread())
         cancel_event = _args[-1]
         while not cancel_event.is_set():
@@ -941,7 +941,7 @@ def test_timestamp_stream_with_preset_stop_does_not_start_generation(monkeypatch
     nn.Module.__init__(model)
     model.config = SimpleNamespace(timestamp_heads=[])  # ty: ignore[invalid-assignment]
     model.model_recommended_frames_after_eos = None
-    model._prepare_text_chunks = lambda *a: [("One.", 5)]  # ty: ignore[invalid-assignment]
+    model._prepare_text_chunks = lambda *a: [_PreparedTextChunk("One.", 5)]  # ty: ignore[invalid-assignment]
     model.flow_lm = SimpleNamespace(  # ty: ignore[invalid-assignment]
         conditioner=SimpleNamespace(tokenizer=_SentencePiece021())
     )
@@ -972,3 +972,119 @@ def test_timestamped_audio_matches_ordinary_audio_for_comma_split_prompts(
     torch.testing.assert_close(result.audio, expected, atol=1e-5, rtol=1e-4)
     assert result.words
     assert all(0 <= word.start_time <= word.end_time for word in result.words)
+
+
+@pytest.mark.parametrize("padding", [False, True])
+@pytest.mark.parametrize("capitalize", [False, True])
+@pytest.mark.parametrize("punctuate", [False, True])
+def test_teacher_forced_timestamp_mapping_uses_the_same_prompts_as_ordinary_generation(
+    padding, capitalize, punctuate
+):
+    model = object.__new__(TTSModel)
+    nn.Module.__init__(model)
+    model.model_recommended_frames_after_eos = None
+    model.pad_with_spaces_for_short_inputs = padding
+    model.remove_semicolons = False
+    model.append_terminal_punctuation = punctuate
+    model.capitalize_first_letter = capitalize
+    model.replace_characters = {"’": "'"}
+    model.config = SimpleNamespace(timestamp_heads=[])  # ty: ignore[invalid-assignment]
+    model.flow_lm = SimpleNamespace(  # ty: ignore[invalid-assignment]
+        conditioner=SimpleNamespace(tokenizer=_SentencePiece021())
+    )
+    ordinary = []
+    timestamped = []
+
+    def ordinary_short(**kwargs):
+        forced = kwargs["forced_latents"]
+        ordinary.append((kwargs["text_to_generate"], kwargs["frames_after_eos"], forced))
+        assert kwargs["copy_state"]
+        kwargs["latents_out"].append(torch.full((1, 1, 1), float(len(ordinary))))
+        yield torch.ones(1)
+
+    def timestamp_short(**kwargs):
+        forced = kwargs["forced_latents"]
+        timestamped.append((kwargs["timestamp_chunk"], kwargs["frames_after_eos"], forced))
+        assert kwargs["copy_state"]
+        kwargs["latents_out"].append(torch.full((1, 1, 1), float(len(timestamped))))
+        yield AudioChunk(torch.ones(1), kwargs["time_offset"], kwargs["time_offset"] + 0.08)
+        return kwargs["time_offset"] + 0.08
+
+    model._generate_audio_stream_short_text = ordinary_short  # ty: ignore[invalid-assignment]
+    model._generate_audio_with_timestamps_short_text = timestamp_short  # ty: ignore[invalid-assignment]
+    source = "one l’esprit, three four, five six."
+    with patch(
+        "pocket_tts_timestamped.models.tts_model.split_into_best_sentences",
+        return_value=["one l’esprit,", "three four,", "five six."],
+    ):
+        list(
+            model.generate_audio_stream(
+                {}, source, copy_state=False, teacher_force_previous_chunk=True
+            )
+        )
+        list(
+            model.generate_audio_with_timestamps_stream(
+                {}, source, copy_state=False, teacher_force_previous_chunk=True
+            )
+        )
+    assert [(chunk.text, frames) for chunk, frames, _ in timestamped] == [
+        (text, frames) for text, frames, _ in ordinary
+    ]
+    for (_, _, timestamp_forced), (_, _, ordinary_forced) in zip(timestamped, ordinary):
+        if ordinary_forced is None:
+            assert timestamp_forced is None
+        else:
+            assert timestamp_forced is not None
+            torch.testing.assert_close(timestamp_forced, ordinary_forced)
+    assert [forced is None for _, _, forced in ordinary] == [True, False, False]
+    # Each chunk times only its own words; the previous chunk's text is untimed context.
+    assert [[word.text for word in chunk.words] for chunk, _, _ in timestamped] == [
+        ["one", "l’esprit"],
+        ["three", "four"],
+        ["five", "six"],
+    ]
+    assert [word.word_index for chunk, _, _ in timestamped for word in chunk.words] == list(
+        range(6)
+    )
+    for chunk, _, _ in timestamped:
+        assert chunk.prepared_tokens is not None
+        assert chunk.prepared_tokens.shape[1] == len(chunk.text)
+        assert chunk.token_to_unit.shape == (len(chunk.text), len(chunk.units))
+        for word in chunk.words:
+            assert source[word.begin : word.end] == word.text
+        for unit in chunk.units:
+            if unit.word is not None:
+                assert _normalized_text(chunk.text[unit.chunk_begin : unit.chunk_end]) == (
+                    _normalized_text(unit.word.text)
+                )
+        for index, unit in enumerate(chunk.units):
+            assert chunk.token_to_unit[:, index].sum() > 0
+    for chunk, _, _ in timestamped[1:]:
+        assert not chunk.units[0].is_word and chunk.units[0].synthetic
+
+
+def _normalized_text(text):
+    return unicodedata.normalize("NFKC", text).casefold().replace("’", "'")
+
+
+def test_timestamped_audio_matches_ordinary_audio_with_teacher_forced_chunks(
+    spanish_timestamp_model_and_voice_state, monkeypatch
+):
+    model, voice_state = spanish_timestamp_model_and_voice_state
+    text = "el café está aquí, la casa está allí, el perro duerme."
+    monkeypatch.setattr(model, "max_decoder_frames_per_call", 1)
+    torch.manual_seed(123)
+    expected = model.generate_audio(
+        voice_state, text, max_tokens=6, frames_after_eos=0, teacher_force_previous_chunk=True
+    )
+    monkeypatch.setattr(model, "max_decoder_frames_per_call", 0)
+    torch.manual_seed(123)
+    result = model.generate_audio_with_timestamps(
+        voice_state, text, max_tokens=6, frames_after_eos=0, teacher_force_previous_chunk=True
+    )
+    torch.testing.assert_close(result.audio, expected, atol=1e-5, rtol=1e-4)
+    assert result.words
+    assert all(0 <= word.start_time <= word.end_time for word in result.words)
+    assert [word.word_index for word in result.words] == sorted(
+        word.word_index for word in result.words
+    )
