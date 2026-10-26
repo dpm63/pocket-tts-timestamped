@@ -98,6 +98,9 @@ jobs:
         with:
           claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           github_token: ${{ github.token }}
+          # Streams the session into the (public) log. Acceptable here: this job holds no secret
+          # besides the Claude token, which GitHub masks, and a read-only, job-scoped token.
+          show_full_output: true
           prompt: ${{ steps.prompt.outputs.text }}
           claude_args: |
             --model claude-opus-5-5
