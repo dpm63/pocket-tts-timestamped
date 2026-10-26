@@ -106,6 +106,13 @@ jobs:
             --json-schema '{"type":"object","properties":{"verdict":{"type":"string","enum":["clean","needs-review"]},"summary":{"type":"string"},"attention":{"type":"array","items":{"type":"string"}},"notes":{"type":"array","items":{"type":"string"}}},"required":["verdict","summary","attention","notes"],"additionalProperties":false}'
             --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git grep:*),Bash(git merge-base:*),Bash(git add:*),Bash(git rm:*),Bash(git mv:*),Bash(git checkout --ours:*),Bash(git checkout --theirs:*),Bash(uv sync:*),Bash(uv lock:*),Bash(uv run python scripts/normalize_upstream_namespace.py),Bash(uv run ty check:*),Bash(uv run pytest:*),Bash(uvx pre-commit run:*)"
 
+      # The action hides Claude's output; on failure, show only its final result message.
+      - name: Show why Claude failed
+        if: failure() && steps.claude.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: jq -r 'map(select(.type == "result")) | last | .result // "No result message."' "$EXECUTION_FILE"
+
       # Claude's verdict is necessary but not sufficient: the checks below are what allow a merge
       # straight to main.
       - name: Check the result
