@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import threading
 import time
 from collections.abc import Generator as EventGenerator
 from collections.abc import Iterable
@@ -16,7 +15,6 @@ from numpy.typing import NDArray
 
 from pocket_tts_timestamped import TTSModel
 from pocket_tts_timestamped.models import tts_model as model_module
-from pocket_tts_timestamped.models.tts_model import ModelState
 from pocket_tts_timestamped.timestamps import (
     SelectedAttentionCapture,
     TimestampEvent,
@@ -115,17 +113,13 @@ class Generator:
             chunks.append(chunk)
             return original_prepare(chunk)
 
+        # Passes every other argument through, so new generation options need no change here.
         def short_text(
-            model_state: ModelState,
-            timestamp_chunk: TimestampTextChunk,
-            frames_after_eos: int,
-            copy_state: bool,
+            *,
             time_offset: float,
-            stop: threading.Event | None = None,
+            **kwargs: Any,  # noqa: ANN401 -- passthrough to the wrapped method
         ) -> EventGenerator[TimestampEvent, None, float]:
-            end = yield from original_short_text(
-                model_state, timestamp_chunk, frames_after_eos, copy_state, time_offset, stop=stop
-            )
+            end = yield from original_short_text(time_offset=time_offset, **kwargs)
             durations.append(end - time_offset)
             return end
 
