@@ -4,7 +4,7 @@ import logging
 import unicodedata
 from collections import Counter
 from collections.abc import Callable, Iterable, Iterator
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from itertools import groupby
 from typing import Literal, Protocol, cast
 
@@ -768,6 +768,58 @@ def _iter_timestamp_text_chunks(
             token_to_unit=_token_to_unit_mapping(normalized_chunk, units, piece_layout),
             prepared_tokens=torch.tensor(piece_layout.token_ids, dtype=torch.long)[None, :],
         )
+
+
+def _continuation_timestamp_text_chunk(
+    chunk: TimestampTextChunk, text: str, sentencepiece_processor: object
+) -> TimestampTextChunk:
+    """Move a chunk's units onto a prompt that starts with the previous chunk's text.
+
+    With teacher_force_previous_chunk the model reads both chunks but only speaks the new one,
+    so the previous chunk's text becomes a single context unit that is never timed.
+    """
+
+    normalized = unicodedata.normalize("NFKC", text)
+    # The chunk prepared alone may be padded and capitalized; inside the prompt it is neither.
+    core = chunk.text.lstrip(" ")
+    core_begin = len(normalized) - len(core)
+    matches = (
+        bool(core)
+        and core_begin > 0
+        and normalized[core_begin - 1].isspace()
+        and normalized[core_begin].casefold() == core[0].casefold()
+        and normalized[core_begin + 1 :] == core[1:]
+    )
+    units: tuple[_TextUnit, ...] = ()
+    if matches:
+        offset = core_begin - (len(chunk.text) - len(core))
+        context_end = len(normalized[:core_begin].rstrip())
+        context = (
+            _TextUnit(
+                text=normalized[:context_end],
+                chunk_begin=0,
+                chunk_end=context_end,
+                word=None,
+                synthetic=True,
+            ),
+        )
+        units = context + tuple(
+            replace(unit, chunk_begin=unit.chunk_begin + offset, chunk_end=unit.chunk_end + offset)
+            for unit in chunk.units
+        )
+    else:
+        logger.warning(
+            "Timestamp text mapping omitted %d source word(s); audio generation continues",
+            len(chunk.words),
+        )
+
+    piece_layout = _SentencePieceLayoutReader(sentencepiece_processor).read(normalized)
+    return TimestampTextChunk(
+        text=normalized,
+        units=units,
+        token_to_unit=_token_to_unit_mapping(normalized, units, piece_layout),
+        prepared_tokens=torch.tensor(piece_layout.token_ids, dtype=torch.long)[None, :],
+    )
 
 
 def build_timestamp_text_chunks(

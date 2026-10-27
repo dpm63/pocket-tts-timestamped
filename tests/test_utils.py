@@ -40,8 +40,9 @@ def test_shipped_configs_sample_at_the_tuned_temperature(config_path: Path):
     "language, revision",
     [
         ("english", "a3055dcb533cf2ec90458008a01e7cef550bae2a"),
-        ("english_2026-09_2", "a3055dcb533cf2ec90458008a01e7cef550bae2a"),
-        ("french", "a3055dcb533cf2ec90458008a01e7cef550bae2a"),
+        ("english_2026-09_2", "a7056f505a4a8ca72d8b5fb1440071d6f1a35739"),
+        ("english_2026-10", "a7056f505a4a8ca72d8b5fb1440071d6f1a35739"),
+        ("french", "a7056f505a4a8ca72d8b5fb1440071d6f1a35739"),
     ],
 )
 def test_predefined_voices_match_checkpoint_revisions(language: str, revision: str):

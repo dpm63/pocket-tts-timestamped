@@ -47,8 +47,16 @@ _ORIGINS_OF_PREDEFINED_VOICES = {
 }
 
 
+# config/english.yaml keeps the calibrated english_2026-09_2 weights while upstream's `english` moved
+# on, so its voice embeddings stay at the revision that matches those weights.
+_PREDEFINED_VOICE_REVISION_OVERRIDES = {"english": "a3055dcb533cf2ec90458008a01e7cef550bae2a"}
+
+
 def get_predefined_voice(language: str, name: str) -> str:
-    return f"hf://kyutai/pocket-tts-without-voice-cloning/languages/{language}/embeddings/{name}.safetensors@a3055dcb533cf2ec90458008a01e7cef550bae2a"
+    revision = _PREDEFINED_VOICE_REVISION_OVERRIDES.get(
+        language, "a7056f505a4a8ca72d8b5fb1440071d6f1a35739"
+    )
+    return f"hf://kyutai/pocket-tts-without-voice-cloning/languages/{language}/embeddings/{name}.safetensors@{revision}"
 
 
 def make_cache_directory() -> Path:

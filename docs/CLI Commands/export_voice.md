@@ -24,7 +24,7 @@ Only the first 30 seconds of the audio file will be processed.
 ### Options
 
 - `--quiet`: Do not print any output except errors.
-- `--language`: Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_18m_2026-10"`, `"english_18m_refl_2026-10"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`, `"english_2m_2026-10"`, `"english_2m_refl_2026-10"`, `"english_7m_2026-10"`, `"english_7m_refl_2026-10"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`. Defaults to `english`, the same model as `english_2026-09_2`, including its calibrated timestamp heads.
+- `--language`: Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_18m_2026-10"`, `"english_18m_refl_2026-10"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`, `"english_2026-10"`, `"english_2m_2026-10"`, `"english_2m_refl_2026-10"`, `"english_7m_2026-10"`, `"english_7m_refl_2026-10"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`. Defaults to `english`, the same model as `english_2026-10`.
 - `--config`: Model config yaml path — a local path, an `https://` URL, or an `hf://` path. Incompatible with `--language`.
 
 ## Examples

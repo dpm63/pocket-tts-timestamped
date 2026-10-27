@@ -96,13 +96,15 @@ Supports Python 3.10, 3.11, 3.12, 3.13 and 3.14. Requires PyTorch 2.5+. Does not
 [📚 Documentation](https://kyutai-labs.github.io/pocket-tts/)
 
 > [!NOTE]
+> **New (October 2026):** Small English models with 18.2M, 6.9M and 1.9M parameters (decoder included), up to 25x faster than real time on one CPU thread. Try them with `--language english_18m_2026-10`, `english_7m_2026-10` or `english_2m_2026-10`; see the [blog post](https://kyutai.org/blog/2026-10-20-pocket-tts-small) for how they were made.
+>
 > **New (August 2026):** We've released the training code! Check out [`training/`](https://github.com/kyutai-labs/pocket-tts/blob/main/training/README.md) to start training your own models.
 > Open a PR to add your model to the [Models trained by the community](#models-trained-by-the-community) section.
 
 
 ## Main takeaways
 * Runs on CPU
-* Small model size, 100M parameters
+* Small model size, 100M parameters, and English models down to 1.9M parameters
 * Audio streaming
 * Low latency, ~200ms to get the first audio chunk
 * Faster than real-time, ~6x real-time on a CPU of MacBook Air M4
@@ -140,6 +142,9 @@ The default `english` model is `english_2026-09_2`, distilled on re-aligned Dora
 with calibrated timestamp heads and matching voice embeddings. Select `--language english_2026-09`
 to keep using the previous English weights. Re-export custom English voice states from their
 original audio when switching to the new weights.
+`--language english_2026-10` selects upstream's newer default English weights, the
+`english_2026-09_2` recipe retrained so that it reads sentence-final numbers and years. It will
+become the default `english` here once its timestamp heads are calibrated.
 `--language english_18m_2026-10`, `english_7m_2026-10` and `english_2m_2026-10` select small English models with 18.2M, 6.9M and 1.9M parameters (decoder included). The `_refl` variants, such as `english_7m_refl_2026-10`, add reward fine-tuning.
 The `--config` option accepts a local YAML path, an `https://` URL, or an `hf://` path (e.g. `hf://<repo_id>/<path>[@revision]`) for custom weights.
 
