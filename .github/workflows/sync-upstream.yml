@@ -12,7 +12,6 @@ concurrency:
 env:
   SYNC_BRANCH: automation/upstream-sync
   UPSTREAM_URL: https://github.com/kyutai-labs/pocket-tts.git
-  NOTES_ISSUE_TITLE: Upstream sync notes
 
 jobs:
   # Claude reads upstream content, so this job only gets a read-only token. The merge it produces
@@ -202,7 +201,6 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      issues: write
     env:
       GH_TOKEN: ${{ secrets.SYNC_PUSH_TOKEN }}
     steps:
@@ -244,7 +242,6 @@ jobs:
         if: steps.decision.outputs.auto_merge == 'true'
         run: |
           git push origin "$MERGE_SHA:refs/heads/main"
-          echo "SYNC_LINK=$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/commit/$MERGE_SHA" >> "$GITHUB_ENV"
 
       - name: Open a pull request for review
         if: steps.decision.outputs.auto_merge != 'true'
@@ -268,41 +265,9 @@ jobs:
             echo "Created by the weekly upstream synchronization workflow."
           } > "$RUNNER_TEMP/pr-body.md"
 
-          pr_url=$(gh pr create \
+          gh pr create \
             --repo "$GITHUB_REPOSITORY" \
             --base main \
             --head "$SYNC_BRANCH" \
             --title "Sync upstream main" \
-            --body-file "$RUNNER_TEMP/pr-body.md")
-          echo "SYNC_LINK=$pr_url" >> "$GITHUB_ENV"
-
-      # Notes stay out of the commit and the pull request; they collect on one long-lived issue.
-      - name: Post Claude's notes
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          result="$RUNNER_TEMP/upstream-sync/sync-result.json"
-          if [ "$(jq '.claude.notes | length' "$result")" -eq 0 ]; then
-            echo "Claude left no notes."
-            exit 0
-          fi
-
-          {
-            echo "Notes from the sync of upstream $(jq -r '.upstream_sha' "$result") ($SYNC_LINK, [run]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID)):"
-            echo
-            jq -r '.claude.notes | map("- " + .) | join("\n")' "$result"
-          } > "$RUNNER_TEMP/notes.md"
-
-          issue=$(gh issue list \
-            --repo "$GITHUB_REPOSITORY" \
-            --state open \
-            --search "in:title \"$NOTES_ISSUE_TITLE\"" \
-            --json number,title \
-            --jq "map(select(.title == \"$NOTES_ISSUE_TITLE\")) | .[0].number // empty")
-          if [ -z "$issue" ]; then
-            issue=$(gh issue create \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "$NOTES_ISSUE_TITLE" \
-              --body "Follow-ups and refactor opportunities that Claude noticed while syncing upstream. Each sync adds a comment; close this issue to start a fresh one.")
-          fi
-          gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" --body-file "$RUNNER_TEMP/notes.md"
+            --body-file "$RUNNER_TEMP/pr-body.md"
