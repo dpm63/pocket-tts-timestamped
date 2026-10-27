@@ -67,7 +67,12 @@ The workflow has already run `git merge --no-ff --no-commit upstream/main` on to
    - `uv sync --dev`
    - `uvx pre-commit run --all-files`
    - `uv run ty check`
-   - `uv run pytest -n 3 ./tests ./training/tests`
+   - `uv run pytest -n 3 -q --tb=short ./tests ./training/tests` (the full suite takes about a
+     minute)
+
+   Read each command's complete result. A test run whose final summary line you have not seen is
+   unfinished work: rerun it, narrowing to the failing files if needed, until you know which tests
+   fail and why. Never report a check as unknown or still running.
 
    Only fix breakage caused by combining the two sides. Do not refactor, do not fix unrelated
    pre-existing problems, and do not change a test's expectations to make it pass. If a test fails
