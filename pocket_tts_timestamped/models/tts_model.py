@@ -586,23 +586,19 @@ class TTSModel(nn.Module):
         )
 
     def _warm_up_decoder(
-        self,
-        warmup_latents: torch.Tensor | None,
-        mimi_state: ModelState,
-        mimi_steps_per_latent: int,
-    ) -> bool:
-        """Return whether the decoder state continues the previous chunk's audio."""
-        if warmup_latents is None:
-            return False
-        # Continuation of the previous chunk: run the decoder over its last frames (audio
-        # dropped) so the new chunk's audio follows on without a fresh-state transient.
+        self, warmup_latents: torch.Tensor, mimi_state: ModelState, mimi_steps_per_latent: int
+    ) -> None:
+        """Continue the previous chunk's audio from its last frames.
+
+        The decoder runs over those frames with their audio dropped, so the new chunk's audio
+        follows on without a fresh-state transient.
+        """
         self.mimi.decode_from_latent(
             warmup_latents * self.flow_lm.emb_std + self.flow_lm.emb_mean, mimi_state
         )
         increment_steps(
             self.mimi, mimi_state, increment=mimi_steps_per_latent * warmup_latents.shape[1]
         )
-        return True
 
     @torch.no_grad
     def _decode_audio_worker(
@@ -620,9 +616,10 @@ class TTSModel(nn.Module):
             # A fresh Mimi decoder state puts a small step (about -41 dBFS) in its first samples, heard
             # as a click at the start of every chunk: fade the first 5 ms in. (The longer burst some
             # voices produced came from prompts ending on speech, handled by end_on_pause.)
-            first_batch = not self._warm_up_decoder(
-                warmup_latents, mimi_state, mimi_steps_per_latent
-            )
+            # A warmed-up decoder continues the previous chunk and needs no fade.
+            first_batch = warmup_latents is None
+            if warmup_latents is not None:
+                self._warm_up_decoder(warmup_latents, mimi_state, mimi_steps_per_latent)
             for batch in _iter_latent_batches(latents_queue, self.max_decoder_frames_per_call):
                 latents = []
                 for item in batch:
@@ -679,9 +676,9 @@ class TTSModel(nn.Module):
         try:
             mimi_state = init_states(self.mimi, batch_size=1, sequence_length=mimi_sequence_length)
             generated_samples = 0
-            first_batch = not self._warm_up_decoder(
-                warmup_latents, mimi_state, mimi_steps_per_latent
-            )
+            first_batch = warmup_latents is None
+            if warmup_latents is not None:
+                self._warm_up_decoder(warmup_latents, mimi_state, mimi_steps_per_latent)
             for batch in _iter_latent_batches(
                 latents_queue, self.max_decoder_frames_per_call, cancel_event
             ):
