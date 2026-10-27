@@ -56,7 +56,7 @@ All official Pocket TTS checkpoints are supported, but accuracy differs between 
 |---|---|---:|---:|---:|---:|
 | Dutch | L4H5+L3H9+L3H14+L2H0 | 14,566 | 0.000% | 4,753 | 69.41 ms |
 | Dutch 24L | L17H13+L17H11 | 14,548 | 0.007% | 4,740 | 71.84 ms |
-| English | L3H8+L2H0 | 14,519 | 0.096% | 4,811 | 41.31 ms |
+| English | L3H8+L2H0 | 14,465 | 0.097% | 4,840 | 41.05 ms |
 | English 18m 2026-10 | L2H7+L3H4 | 14,511 | 0.014% | 4,812 | 58.72 ms |
 | English 18m refl 2026-10 | L2H7+L3H4 | 14,497 | 0.000% | 4,815 | 57.16 ms |
 | English 2026-01 | L3H8+L2H0 | 14,577 | 0.048% | 4,796 | 52.21 ms |
@@ -139,13 +139,10 @@ pocket-tts-timestamped generate
 Modify the voice with `--voice` and the text with `--text`. We provide a small catalog of voices.
 Choose a pretrained language model with `--language` when running `generate`, `export-voice`, or `serve` (default: `english`). Non-english languages have also biggers 24 layers variants that are higher quality but slower. You can select them by using for example `--language italian_24l`.
 `--language english_drifting_26-09` selects an English model whose sampler head was trained with drifting instead of LSD (see [training/README.md](training/README.md) for the recipe).
-The default `english` model is `english_2026-09_2`, distilled on re-aligned Dora data,
-with calibrated timestamp heads and matching voice embeddings. Select `--language english_2026-09`
-to keep using the previous English weights. Re-export custom English voice states from their
-original audio when switching to the new weights.
-`--language english_2026-10` selects upstream's newer default English weights, the
-`english_2026-09_2` recipe retrained so that it reads sentence-final numbers and years. It will
-become the default `english` here once its timestamp heads are calibrated.
+The default `english` model is `english_2026-10`, the `english_2026-09_2` recipe retrained so that
+it reads sentence-final numbers and years, with matching voice embeddings. Select
+`--language english_2026-09_2` to keep using the previous English weights. Re-export custom English
+voice states from their original audio when switching to the new weights.
 `--language english_18m_2026-10`, `english_7m_2026-10` and `english_2m_2026-10` select small English models with 18.2M, 6.9M and 1.9M parameters (decoder included). The `_refl` variants, such as `english_7m_refl_2026-10`, add reward fine-tuning.
 The `--config` option accepts a local YAML path, an `https://` URL, or an `hf://` path (e.g. `hf://<repo_id>/<path>[@revision]`) for custom weights.
 
