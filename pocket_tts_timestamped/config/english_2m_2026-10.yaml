@@ -15,10 +15,8 @@ timestamp_heads:
   head: 2
 - layer: 2
   head: 2
-- layer: 2
-  head: 0
 - layer: 3
-  head: 0
+  head: 2
 
 flow_lm:
   insert_bos_before_voice: true
