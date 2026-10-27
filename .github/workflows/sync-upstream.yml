@@ -106,7 +106,7 @@ jobs:
             --model claude-opus-5-5
             --effort high
             --json-schema '{"type":"object","properties":{"verdict":{"type":"string","enum":["clean","needs-review"]},"summary":{"type":"string"},"attention":{"type":"array","items":{"type":"string"}},"notes":{"type":"array","items":{"type":"string"}}},"required":["verdict","summary","attention","notes"],"additionalProperties":false}'
-            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git grep:*),Bash(git merge-base:*),Bash(git add:*),Bash(git rm:*),Bash(git mv:*),Bash(git checkout --ours:*),Bash(git checkout --theirs:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(wc:*),Bash(grep:*),Bash(uv sync:*),Bash(uv lock:*),Bash(uv run python:*),Bash(uv run ty check:*),Bash(uv run pytest:*),Bash(uvx pre-commit run:*)"
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git grep:*),Bash(git merge-base:*),Bash(git add:*),Bash(git rm:*),Bash(git mv:*),Bash(git checkout --ours:*),Bash(git checkout --theirs:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(wc:*),Bash(grep:*),Bash(uv sync:*),Bash(uv lock:*),Bash(uv run python:*),Bash(uv run ty check:*),Bash(uv run pytest:*),Bash(uv run --with numba==0.67.0 pytest:*),Bash(uvx pre-commit run:*)"
 
       # The action hides Claude's output; on failure, show only its final result message.
       - name: Show why Claude failed
@@ -141,6 +141,9 @@ jobs:
           uvx pre-commit run --all-files || review_reasons+=("pre-commit failed")
           uv run ty check || review_reasons+=("ty check failed")
           uv run pytest -n 3 ./tests ./training/tests || review_reasons+=("pytest failed")
+          # Skipped by the run above without numba; see the timestamp-tooling job in run-tests.yml.
+          uv run --with numba==0.67.0 pytest -q tests/test_timestamp_evaluation.py \
+            || review_reasons+=("timestamp evaluation tests failed")
           # Stage anything the checks rewrote so the commit matches what was tested.
           git add --all
 

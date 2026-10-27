@@ -69,6 +69,10 @@ The workflow has already run `git merge --no-ff --no-commit upstream/main` on to
    - `uv run ty check`
    - `uv run pytest -n 3 -q --tb=short ./tests ./training/tests` (the full suite takes about a
      minute)
+   - `uv run --with numba==0.67.0 pytest -q --tb=short tests/test_timestamp_evaluation.py`. The
+     run above skips these tests without numba. They cover `scripts/timestamp_eval/`, the
+     tooling that calibrates `timestamp_heads`, which wraps `TTSModel`'s timestamp internals and
+     must keep working with them.
 
    Read each command's complete result. A test run whose final summary line you have not seen is
    unfinished work: rerun it, narrowing to the failing files if needed, until you know which tests
