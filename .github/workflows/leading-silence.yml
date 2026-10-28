@@ -78,7 +78,8 @@ jobs:
     timeout-minutes: 240
     strategy:
       fail-fast: false
-      max-parallel: 4
+      # Public repositories run up to 20 jobs at once; other workflows queue while this one runs.
+      max-parallel: 20
       matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
