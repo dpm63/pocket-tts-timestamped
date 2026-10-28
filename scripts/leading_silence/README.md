@@ -84,7 +84,15 @@ CPU, training takes about 9 min (rollouts 2, whole-sequence rollouts 3, training
 checks.
 
 Vectors that fail a check stay in the run's artifact (90 days) and are listed under "Not
-published". If a look at them shows a false negative, publish them without retraining:
+published". To hear what a check flagged, `listen` replays the check's own trials (same voices,
+texts and seeds) without and with the vectors, and saves the pairs it flags with the vectors
+only (at most `--most` per check), with a `manifest.json`:
+
+```bash
+python -m scripts.leading_silence listen --config spanish --vectors RESULTS/vectors.safetensors     --out listening/spanish --checks tail_period,tail_no_period   # also first_word, abrupt
+```
+
+If they turn out to be false negatives, publish them without retraining:
 
 ```bash
 python -m scripts.leading_silence publish --from-run RUN_ID --work work/RUN_ID --accept dutch

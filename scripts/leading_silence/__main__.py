@@ -1,10 +1,10 @@
-"""python -m scripts.leading_silence {plan,train,publish} — see README.md."""
+"""python -m scripts.leading_silence {plan,train,publish,listen} — see README.md."""
 
 from __future__ import annotations
 
 import argparse
 
-from scripts.leading_silence import pipeline, publish
+from scripts.leading_silence import listen, pipeline, publish
 
 
 def main() -> None:
@@ -48,6 +48,19 @@ def main() -> None:
         help="comma-separated configs to publish despite failed checks (false negatives)",
     )
     publish_parser.set_defaults(run=publish.publish)
+
+    listen_parser = commands.add_parser(
+        "listen", help="WAV pairs of the trials a check flags with the vectors only"
+    )
+    listen_parser.add_argument("--config", required=True)
+    listen_parser.add_argument("--vectors", required=True, help="the trained vectors file")
+    listen_parser.add_argument("--out", required=True)
+    listen_parser.add_argument("--checks", default=",".join(listen.CHECKS))
+    listen_parser.add_argument("--eval-texts", type=int, default=20)
+    listen_parser.add_argument("--whisper-trials", type=int, default=60)
+    listen_parser.add_argument("--most", type=int, default=12, help="pairs saved per check")
+    listen_parser.add_argument("--threads", type=int, default=4)
+    listen_parser.set_defaults(run=listen.run)
 
     args = parser.parse_args()
     args.run(args)

@@ -71,29 +71,78 @@ def _frames(
     return np.concatenate(chunks), eos
 
 
+def onset_trial(model: TTSModel, state: ModelState, text: str, index: int) -> NDArray[np.float32]:
+    """The onset trial of text number `index`: generated until a few frames past speech."""
+    torch.manual_seed(1000 * index)
+    margin = ONSET_TAIL + VAD_TAIL_FRAMES
+
+    def stop(pcm: NDArray[np.float32]) -> bool:
+        found = speech_onset(frame_db(pcm))
+        count = len(pcm) // 1920
+        return count >= ONSET_FRAMES or (found >= 0 and count > found + margin)
+
+    return _frames(model, state, text, True, stop)[0]
+
+
+def onset_measures(pcm: NDArray[np.float32], sample_rate: int) -> dict[str, Any]:
+    """An onset trial's VAD and loudness onsets (ONSET_FRAMES if none) and head level."""
+    found = vad_onset(pcm, sample_rate)
+    db = frame_db(pcm)
+    loud = speech_onset(db)
+    start = sustained(db > VOICED_DB)
+    return {
+        "vad_onset": found if found >= 0 else ONSET_FRAMES,
+        "loud_onset": loud if loud >= 0 else ONSET_FRAMES,
+        "head_db": head_db(pcm, start, sample_rate) if start >= 0 else None,
+    }
+
+
+def tail_trial(
+    model: TTSModel, state: ModelState, text: str, index: int, period: bool
+) -> tuple[NDArray[np.float32], int | None, str]:
+    """The tail trial of text number `index`, to EOS plus its tail: (pcm, EOS frame, text
+    spoken, without its final punctuation unless `period`)."""
+    torch.manual_seed(1000 * index + 7)
+    spoken = text if period else bare(text)
+    pcm, eos = _frames(model, state, spoken, period, lambda _: False)
+    return pcm, eos, spoken
+
+
+def tail_flags(pcm: NDArray[np.float32], eos: int | None) -> dict[str, bool] | None:
+    """Whether a tail trial holds speech (or any sound) after EOS and ends EOS on its last loud
+    frame; None if EOS never fired."""
+    if eos is None:
+        return None
+    db = frame_db(pcm)
+    loud = np.flatnonzero(db[: eos + 1] > TAIL_SPEECH_DB)
+    return {
+        "speech": bool((db[eos + 1 :] > TAIL_SPEECH_DB).any()),
+        "sound": bool((db[eos + 1 :] > TAIL_SOUND_DB).any()),
+        "early_eos": bool(len(loud)) and int(loud[-1]) >= eos,
+    }
+
+
+def whisper_trial_numbers(total: int, wanted: int) -> list[int]:
+    """Numbers (from 0) of the `wanted` tail trials with a period that Whisper checks, spread
+    evenly over `total`."""
+    if not wanted:
+        return []
+    every = max(1, total // wanted)
+    return [number for number in range(0, total, every)][:wanted]
+
+
 def onsets(model: TTSModel, states: Iterable[ModelState], texts: list[str]) -> dict[str, float]:
     """Speech onset per voice x text, one seed per text: by the VAD (`vad_onset`, which the
     checks use) and by loudness (`speech_onset`, -35 dB; the `loud_*` keys)."""
     frames, loud_frames, heads = [], [], []
-    margin = ONSET_TAIL + VAD_TAIL_FRAMES
     for state in states:
         for index, text in enumerate(texts):
-            torch.manual_seed(1000 * index)
-
-            def stop(pcm: NDArray[np.float32]) -> bool:
-                found = speech_onset(frame_db(pcm))
-                count = len(pcm) // 1920
-                return count >= ONSET_FRAMES or (found >= 0 and count > found + margin)
-
-            pcm, _ = _frames(model, state, text, True, stop)
-            found = vad_onset(pcm, model.sample_rate)
-            frames.append(found if found >= 0 else ONSET_FRAMES)
-            db = frame_db(pcm)
-            found = speech_onset(db)
-            loud_frames.append(found if found >= 0 else ONSET_FRAMES)
-            start = sustained(db > VOICED_DB)
-            if start >= 0:
-                heads.append(head_db(pcm, start, model.sample_rate))
+            pcm = onset_trial(model, state, text, index)
+            trial = onset_measures(pcm, model.sample_rate)
+            frames.append(trial["vad_onset"])
+            loud_frames.append(trial["loud_onset"])
+            if trial["head_db"] is not None:
+                heads.append(trial["head_db"])
     array, loud = np.array(frames), np.array(loud_frames)
     return {
         "trials": len(frames),
@@ -122,20 +171,17 @@ def tails(
     kept = []
     for state in states:
         for index, text in enumerate(texts):
-            torch.manual_seed(1000 * index + 7)
-            spoken = text if period else bare(text)
-            pcm, eos = _frames(model, state, spoken, period, lambda _: False)
+            pcm, eos, spoken = tail_trial(model, state, text, index, period)
             if keep(count):
                 kept.append((pcm, spoken))
             count += 1
-            if eos is None:
+            flags = tail_flags(pcm, eos)
+            if flags is None:
                 no_eos += 1
                 continue
-            db = frame_db(pcm)
-            speech += bool((db[eos + 1 :] > TAIL_SPEECH_DB).any())
-            sound += bool((db[eos + 1 :] > TAIL_SOUND_DB).any())
-            loud = np.flatnonzero(db[: eos + 1] > TAIL_SPEECH_DB)
-            early += bool(len(loud)) and int(loud[-1]) >= eos
+            speech += flags["speech"]
+            sound += flags["sound"]
+            early += flags["early_eos"]
     ended = max(1, count - no_eos)
     report = {
         "trials": count,
@@ -158,12 +204,12 @@ def measure(
 ) -> dict[str, dict[str, float]]:
     """With `whisper`, `whisper_trials` of the generations with a period, spread evenly over
     voices and texts, are transcribed. `phase(name, call)` runs (and may time) each part."""
-    every = max(1, len(states) * len(texts) // whisper_trials) if whisper_trials else 0
+    chosen = set()
+    if whisper is not None:
+        chosen = set(whisper_trial_numbers(len(states) * len(texts), whisper_trials))
 
     def keep(number: int) -> bool:
-        if whisper is None or not every:
-            return False
-        return number % every == 0 and number // every < whisper_trials
+        return number in chosen
 
     with torch.no_grad():
         report = {

@@ -50,6 +50,28 @@ def _edit_distance(a: list[str], b: list[str]) -> int:
     return row[len(b)]
 
 
+def transcribe_clip(
+    whisper: Any,  # noqa: ANN401
+    pcm: NDArray[np.float32],
+    text: str,
+    sample_rate: int,
+    language: str,
+) -> dict[str, Any]:
+    """What Whisper hears in one clip of `text`: its words, first word right, WER."""
+    from scipy.signal import resample_poly
+
+    padded = np.concatenate([np.zeros(int(LEAD_PAD_S * sample_rate), np.float32), pcm])
+    audio = resample_poly(padded, WHISPER_SAMPLE_RATE, sample_rate).astype(np.float32)
+    segments, _ = whisper.transcribe(audio, language=LANGUAGE_CODES[language])
+    hypothesis = words_of(" ".join(segment.text for segment in segments))
+    reference = words_of(text)
+    return {
+        "heard": " ".join(hypothesis),
+        "first_word_right": hypothesis[:1] == reference[:1],
+        "wer": _edit_distance(reference, hypothesis) / max(1, len(reference)),
+    }
+
+
 def score(
     whisper: Any,  # noqa: ANN401
     clips: list[tuple[NDArray[np.float32], str]],
@@ -57,17 +79,9 @@ def score(
     language: str,
 ) -> dict[str, float]:
     """First word right and mean WER of (pcm, text) clips."""
-    from scipy.signal import resample_poly
-
-    first, errors = [], []
-    for pcm, text in clips:
-        padded = np.concatenate([np.zeros(int(LEAD_PAD_S * sample_rate), np.float32), pcm])
-        audio = resample_poly(padded, WHISPER_SAMPLE_RATE, sample_rate).astype(np.float32)
-        segments, _ = whisper.transcribe(audio, language=LANGUAGE_CODES[language])
-        hypothesis = words_of(" ".join(segment.text for segment in segments))
-        reference = words_of(text)
-        first.append(hypothesis[:1] == reference[:1])
-        errors.append(_edit_distance(reference, hypothesis) / max(1, len(reference)))
+    heard = [transcribe_clip(whisper, pcm, text, sample_rate, language) for pcm, text in clips]
+    first = [clip["first_word_right"] for clip in heard]
+    errors = [clip["wer"] for clip in heard]
     return {
         "trials": len(clips),
         "first_word_right": round(float(np.mean(first)), 3) if clips else float("nan"),
