@@ -127,8 +127,37 @@ def _row(name: str, report: dict[str, Any]) -> str:
     )
 
 
+def download_run(run_id: str, work: Path) -> None:
+    """A finished workflow run's plan and results, laid out in `work` as its publish job does."""
+    downloads = work / "downloads"
+    subprocess.run(
+        [
+            "gh",
+            "run",
+            "download",
+            run_id,
+            "--pattern",
+            "leading-silence-*",
+            "--dir",
+            str(downloads),
+        ],
+        check=True,
+    )
+    (work / "results").mkdir(parents=True, exist_ok=True)
+    for folder in downloads.iterdir():
+        key = folder.name.removeprefix("leading-silence-")
+        if key == "plan":
+            shutil.copyfile(folder / "plan.json", work / "plan.json")
+        else:
+            shutil.copytree(folder, work / "results" / key, dirs_exist_ok=True)
+
+
 def publish(args: argparse.Namespace) -> None:
     work = Path(args.work)
+    if args.from_run:
+        if args.open_pr:
+            raise SystemExit("--from-run publishes into the working tree; commit it yourself")
+        download_run(args.from_run, work)
     matrix = json.loads((work / "plan.json").read_text())["matrix"]
     run = f"https://github.com/{os.environ.get('GITHUB_REPOSITORY')}/actions/runs/" + str(
         os.environ.get("GITHUB_RUN_ID")
@@ -154,21 +183,32 @@ def publish(args: argparse.Namespace) -> None:
         "| Early EOS, period | Early EOS, no period |",
         "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
-    published, failed, smoke = [], [], False
+    accept = {name.strip() for name in args.accept.split(",") if name.strip()}
+    unknown = accept - {item["config"] for item in matrix}
+    if unknown:
+        raise SystemExit(f"--accept names configs this run didn't train: {sorted(unknown)}")
+    published, failed, accepted = [], [], []
     for item in matrix:
         folder = work / "results" / item["key"]
         if not (folder / REPORT_FILE).exists():
             failed.append(f"{item['config']}: no result (the training job failed)")
             continue
         report = json.loads((folder / REPORT_FILE).read_text())
-        smoke = smoke or report["smoke"] or report.get("timing", False)
         lines.append(_row(", ".join(item["aliases"]), report))
-        if report["problems"]:
-            failed.append(f"{item['config']}: " + "; ".join(report["problems"]))
+        if report["smoke"] or report.get("timing", False):
+            failed.append(f"{item['config']}: a smoke or timing run, never published")
             continue
+        reasons = ""
+        if report["problems"]:
+            reasons = f"{item['config']}: " + "; ".join(report["problems"])
+            if item["config"] not in accept:
+                failed.append(reasons)
+                continue
         if trained_on(folder / VECTORS_FILE) != item["weights_sha256"]:
             failed.append(f"{item['config']}: the vectors were trained on other weights")
             continue
+        if reasons:
+            accepted.append(reasons)
         name = item["config"]
         target = CONFIGS_DIR / VECTORS_DIR / f"{name}.safetensors"
         target.parent.mkdir(exist_ok=True)
@@ -177,13 +217,22 @@ def publish(args: argparse.Namespace) -> None:
             path = CONFIGS_DIR / f"{alias}.yaml"
             path.write_text(set_vectors(path.read_text(), f"{VECTORS_DIR}/{name}.safetensors"))
         published.append(name)
+    if accepted:
+        lines += [
+            "",
+            "Published despite failed checks (`--accept`, judged false negatives):",
+            *(f"- {reason}" for reason in accepted),
+        ]
     if failed:
         lines += ["", "Not published:", *(f"- {reason}" for reason in failed)]
     body = work / "pr-body.md"
     body.write_text("\n".join(lines) + "\n", encoding="utf-8")
     print(body.read_text(), flush=True)
-    if not published or smoke or not args.open_pr:
-        print("Nothing to publish" if not published else "Publishing disabled", flush=True)
+    if not published or not args.open_pr:
+        if not published:
+            print("Nothing to publish", flush=True)
+        else:
+            print("No pull request; vectors and configs updated for: " + ", ".join(published))
         return
     base = os.environ["GITHUB_REF_NAME"]
     branch = f"automation/leading-silence-{os.environ['GITHUB_RUN_ID']}"

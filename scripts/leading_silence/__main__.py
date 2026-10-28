@@ -39,6 +39,14 @@ def main() -> None:
     publish_parser = commands.add_parser("publish", help="open a PR with passing vectors")
     publish_parser.add_argument("--work", default="leading-silence-work")
     publish_parser.add_argument("--open-pr", action="store_true")
+    publish_parser.add_argument(
+        "--from-run", default="", help="download this finished workflow run's results into --work"
+    )
+    publish_parser.add_argument(
+        "--accept",
+        default="",
+        help="comma-separated configs to publish despite failed checks (false negatives)",
+    )
     publish_parser.set_defaults(run=publish.publish)
 
     args = parser.parse_args()

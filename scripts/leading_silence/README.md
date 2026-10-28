@@ -83,6 +83,17 @@ Whisper). For a 6-layer model at 4 threads on a desktop
 CPU, training takes about 9 min (rollouts 2, whole-sequence rollouts 3, training 4), plus the
 checks.
 
+Vectors that fail a check stay in the run's artifact (90 days) and are listed under "Not
+published". If a look at them shows a false negative, publish them without retraining:
+
+```bash
+python -m scripts.leading_silence publish --from-run RUN_ID --work work/RUN_ID --accept dutch
+```
+
+It downloads the run's results, copies in the vectors of the passing configs and of the
+accepted ones (under their checkpoint name, with every alias pointed at them, weights checked),
+and writes `work/RUN_ID/pr-body.md` with the accepted reasons. Commit the result yourself.
+
 `--timing` runs every phase at reduced size with the real batch shapes (64 rows, 3 steps, one
 whole-sequence batch, 2 texts per voice, 6 Whisper clips per side). Its report extrapolates the
 full run's time per phase (`full_run_times_s`) and the memory the stored prefix keys/values take
