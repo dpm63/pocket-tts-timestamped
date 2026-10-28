@@ -16,6 +16,8 @@ timestamp_heads:
 - layer: 3
   head: 4
 
+leading_silence_vectors: leading_silence/english_18m_refl_2026-10.safetensors
+
 flow_lm:
   insert_bos_before_voice: true
   dtype: float32
