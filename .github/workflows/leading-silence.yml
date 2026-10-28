@@ -84,7 +84,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v7
-      - run: uv sync --no-dev --python 3.11
+      - run: uv sync --no-dev --extra audio --python 3.11  # soundfile: MLS clips are not 16-bit WAV
       - run: uv pip install --python .venv/bin/python -r scripts/leading_silence/requirements.txt
       - name: Train, export and check
         env:
