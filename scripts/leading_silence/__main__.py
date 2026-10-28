@@ -23,6 +23,17 @@ def main() -> None:
     train.add_argument("--eval-texts", type=int, default=20)
     train.add_argument("--threads", type=int, default=0, help="torch threads (0: all CPUs)")
     train.add_argument("--smoke", action="store_true", help="tiny run, never published")
+    train.add_argument(
+        "--timing",
+        action="store_true",
+        help="every phase at reduced size; reports full-run times and memory (never published)",
+    )
+    train.add_argument(
+        "--whisper-trials",
+        type=int,
+        default=60,
+        help="generations per side Whisper checks (0: none)",
+    )
     train.set_defaults(run=pipeline.run)
 
     publish_parser = commands.add_parser("publish", help="open a PR with passing vectors")

@@ -2,8 +2,9 @@
 
 Configs that load the same weights share vectors: the plan groups them by the weights file's
 SHA-256, read from the Hub's file metadata (nothing is downloaded). Published vectors go to
-`pocket_tts_timestamped/config/leading_silence/<name>.safetensors`, and every config of the
-group gets `leading_silence_vectors` pointing at them.
+`pocket_tts_timestamped/config/leading_silence/<name>.safetensors`, named after the group's
+checkpoint (`checkpoint_name`), and every config of the group gets `leading_silence_vectors`
+pointing at them.
 """
 
 from __future__ import annotations
@@ -20,30 +21,39 @@ from typing import Any
 import yaml
 
 from pocket_tts_timestamped.utils.config import CONFIGS_DIR
+from scripts.leading_silence.data import LANGUAGES
 from scripts.leading_silence.pipeline import REPORT_FILE, VECTORS_FILE
+from scripts.leading_silence.transcribe import WHISPER_MODEL
+from scripts.leading_silence.weights import trained_on, weights_sha256
 
 VECTORS_DIR = "leading_silence"
-
-
-def weights_sha256(source: str) -> str:
-    """SHA-256 of an `hf://owner/repo/path[@revision]` file, from the Hub's LFS metadata."""
-    from huggingface_hub import HfApi
-
-    match = re.fullmatch(r"hf://([^/]+/[^/]+)/([^@]+)(?:@(.+))?", source)
-    if match is None:
-        raise ValueError(f"Not an hf:// weights path: {source}")
-    repo, path, revision = match.groups()
-    (info,) = HfApi().get_paths_info(repo, [path], revision=revision)
-    lfs = getattr(info, "lfs", None)
-    if lfs is None:
-        raise ValueError(f"No LFS metadata for {source}")
-    return lfs.sha256
 
 
 def _configs() -> dict[str, dict[str, Any]]:
     return {
         path.stem: yaml.safe_load(path.read_text()) for path in sorted(CONFIGS_DIR.glob("*.yaml"))
     }
+
+
+def checkpoint_name(aliases: list[str]) -> str:
+    """The config a group of same-weights configs is trained and named as. A bare language name
+    such as `english` is an alias that upstream moves to new weights, so it is used only when
+    the group has no other name."""
+    return min(aliases, key=lambda alias: (alias in LANGUAGES, alias))
+
+
+def stale_vectors(config: dict[str, Any], digest: str) -> str | None:
+    """Why a config's vectors don't fit weights `digest`; None if they do."""
+    relative = config.get("leading_silence_vectors")
+    if not relative:
+        return "no vectors"
+    path = CONFIGS_DIR / relative
+    if not path.exists():
+        return f"{relative} is missing"
+    recorded = trained_on(path)
+    if recorded != digest:
+        return f"{relative} was trained on other weights ({(recorded or 'unrecorded')[:12]})"
+    return None
 
 
 def plan(args: argparse.Namespace) -> None:
@@ -61,10 +71,21 @@ def plan(args: argparse.Namespace) -> None:
     for digest, aliases in sorted(groups.items()):
         if not set(aliases) & set(wanted):
             continue
-        if not args.force and all(configs[a].get("leading_silence_vectors") for a in aliases):
+        reasons = {a: stale_vectors(configs[a], digest) for a in aliases}
+        if not args.force and not any(reasons.values()):
             print(f"{', '.join(aliases)}: already has vectors", flush=True)
             continue
-        matrix.append({"key": digest[:12], "config": aliases[0], "aliases": aliases})
+        for alias, reason in reasons.items():
+            if reason:
+                print(f"{alias}: {reason}", flush=True)
+        matrix.append(
+            {
+                "key": digest[:12],
+                "config": checkpoint_name(aliases),
+                "aliases": aliases,
+                "weights_sha256": digest,
+            }
+        )
     work = Path(args.work)
     work.mkdir(parents=True, exist_ok=True)
     (work / "plan.json").write_text(json.dumps({"matrix": matrix}, indent=2) + "\n")
@@ -90,12 +111,15 @@ def _row(name: str, report: dict[str, Any]) -> str:
     before, after = report["baseline"], report["vectors"]
 
     def pair(section: str, key: str, percent: bool = True) -> str:
+        if section not in before or section not in after:
+            return "–"
         a, b = before[section][key], after[section][key]
         return f"{a:.0%} → {b:.0%}" if percent else f"{a:g} → {b:g}"
 
     return (
         f"| {name} | {pair('onsets', 'speech_by_frame_1')} | "
         f"{pair('onsets', 'onset_p95', percent=False)} | {pair('onsets', 'abrupt_rate')} | "
+        f"{pair('whisper', 'first_word_right')} | {pair('whisper', 'wer')} | "
         f"{pair('tail_with_period', 'tail_speech_rate')} | "
         f"{pair('tail_without_period', 'tail_speech_rate')} | "
         f"{pair('tail_with_period', 'early_eos_rate')} | "
@@ -118,14 +142,17 @@ def publish(args: argparse.Namespace) -> None:
         "fork's own generation, without and with the exported file, on the dataset's test "
         "voices and texts.",
         "",
-        "Speech after EOS: a frame after EOS louder than -35 dB. Early EOS: EOS fires on the last "
-        "frame louder than -35 dB, which shortens the ending. Both are measured on whole "
-        "generations, with and without a final period.",
+        "Speech onset is the VAD's (Silero, 80 ms frames). First word and WER: Whisper "
+        f"{WHISPER_MODEL} on generations with a final period. Speech after EOS: a frame after "
+        "EOS louder than -35 dB. Early EOS: EOS fires on the last frame louder than -35 dB, "
+        "which shortens the ending. Both are measured on whole generations, with and without a "
+        "final period.",
         "",
         "| Checkpoint | Speech by frame 1 | Onset p95 (frames) | Abrupt starts "
+        "| First word right | WER "
         "| Speech after EOS, period | Speech after EOS, no period "
         "| Early EOS, period | Early EOS, no period |",
-        "| --- | --- | --- | --- | --- | --- | --- | --- |",
+        "| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |",
     ]
     published, failed, smoke = [], [], False
     for item in matrix:
@@ -134,10 +161,13 @@ def publish(args: argparse.Namespace) -> None:
             failed.append(f"{item['config']}: no result (the training job failed)")
             continue
         report = json.loads((folder / REPORT_FILE).read_text())
-        smoke = smoke or report["smoke"]
+        smoke = smoke or report["smoke"] or report.get("timing", False)
         lines.append(_row(", ".join(item["aliases"]), report))
         if report["problems"]:
             failed.append(f"{item['config']}: " + "; ".join(report["problems"]))
+            continue
+        if trained_on(folder / VECTORS_FILE) != item["weights_sha256"]:
+            failed.append(f"{item['config']}: the vectors were trained on other weights")
             continue
         name = item["config"]
         target = CONFIGS_DIR / VECTORS_DIR / f"{name}.safetensors"

@@ -50,12 +50,14 @@ class Setting:
     eos_weight: float = 1.0
     full_pairs: int = 256
     full_max_frames: int = 200
+    # Rows per whole-sequence rollout batch; 24-layer rollouts to 200 frames need smaller ones.
+    full_batch: int = 32
 
 
 def default_setting(num_layers: int) -> Setting:
     """One setting per model size (adopted 2026-10-21); 6L also covers the 8-layer models."""
     if num_layers >= 24:
-        return Setting(rows=128, lr=0.1, steps=50)
+        return Setting(rows=128, lr=0.1, steps=50, full_batch=16)
     return Setting(rows=256, lr=0.3, steps=100)
 
 

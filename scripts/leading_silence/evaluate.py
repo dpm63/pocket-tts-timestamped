@@ -1,5 +1,6 @@
 """Check trained vectors through the fork's own generation (`Session`), without and with the
-exported file loaded: the onset they buy, and the harm they may do later in the utterance."""
+exported file loaded: the onset they buy (by the VAD), whether the first word survives
+(Whisper), and the harm they may do later in the utterance."""
 
 from __future__ import annotations
 
@@ -13,22 +14,29 @@ from numpy.typing import NDArray
 
 from pocket_tts_timestamped import AudioChunk, TTSModel
 from pocket_tts_timestamped.modules.stateful_module import ModelState
+from scripts.leading_silence import transcribe
 from scripts.leading_silence.onsets import (
     ABRUPT_DB,
+    VAD_TAIL_FRAMES,
     VOICED_DB,
     frame_db,
     head_db,
     speech_onset,
     sustained,
+    vad_onset,
 )
 
 ONSET_FRAMES = 40  # an onset trial gives up (and counts the onset as 40) after this
-ONSET_TAIL = 4  # frames generated past the onset
+ONSET_TAIL = 4  # frames generated past the loudness onset, before the VAD's own margin
 # A frame after EOS this loud is speech: a stray word or a cut one. Quieter tails above
 # TAIL_SOUND_DB are mostly the decay of the last word, which isn't audible as a problem
 # (listening, 2026-10-22; pocket-tts-streaming/listening/leading-silence-tails).
 TAIL_SPEECH_DB = -35.0
 TAIL_SOUND_DB = -50.0
+# Whisper checks: how far the vectors may fall behind the model without them. The slack covers
+# the noise of about 60 transcriptions per side.
+FIRST_WORD_SLACK = 0.1
+WER_SLACK = 0.04
 FINAL_PUNCTUATION = ".!?,;:\"')»”…"
 
 
@@ -64,8 +72,10 @@ def _frames(
 
 
 def onsets(model: TTSModel, states: Iterable[ModelState], texts: list[str]) -> dict[str, float]:
-    """Speech onset (`speech_onset`, -35 dB) per voice x text, one seed per text."""
-    frames, heads = [], []
+    """Speech onset per voice x text, one seed per text: by the VAD (`vad_onset`, which the
+    checks use) and by loudness (`speech_onset`, -35 dB; the `loud_*` keys)."""
+    frames, loud_frames, heads = [], [], []
+    margin = ONSET_TAIL + VAD_TAIL_FRAMES
     for state in states:
         for index, text in enumerate(texts):
             torch.manual_seed(1000 * index)
@@ -73,39 +83,50 @@ def onsets(model: TTSModel, states: Iterable[ModelState], texts: list[str]) -> d
             def stop(pcm: NDArray[np.float32]) -> bool:
                 found = speech_onset(frame_db(pcm))
                 count = len(pcm) // 1920
-                return count >= ONSET_FRAMES or (found >= 0 and count > found + ONSET_TAIL)
+                return count >= ONSET_FRAMES or (found >= 0 and count > found + margin)
 
             pcm, _ = _frames(model, state, text, True, stop)
+            found = vad_onset(pcm, model.sample_rate)
+            frames.append(found if found >= 0 else ONSET_FRAMES)
             db = frame_db(pcm)
             found = speech_onset(db)
-            frames.append(found if found >= 0 else ONSET_FRAMES)
+            loud_frames.append(found if found >= 0 else ONSET_FRAMES)
             start = sustained(db > VOICED_DB)
             if start >= 0:
                 heads.append(head_db(pcm, start, model.sample_rate))
-    array = np.array(frames)
+    array, loud = np.array(frames), np.array(loud_frames)
     return {
         "trials": len(frames),
         "speech_by_frame_1": round(float((array <= 1).mean()), 3),
         "onset_median": float(np.median(array)),
         "onset_p95": float(np.percentile(array, 95)),
         "onset_max": int(array.max()),
+        "loud_speech_by_frame_1": round(float((loud <= 1).mean()), 3),
+        "loud_onset_p95": float(np.percentile(loud, 95)),
         "abrupt_rate": round(float((np.array(heads) > ABRUPT_DB).mean()), 3),
         "head_db_median": round(statistics.median(heads), 1),
     }
 
 
 def tails(
-    model: TTSModel, states: Iterable[ModelState], texts: list[str], period: bool
-) -> dict[str, float]:
+    model: TTSModel,
+    states: Iterable[ModelState],
+    texts: list[str],
+    period: bool,
+    keep: Callable[[int], bool] = lambda _: False,
+) -> tuple[dict[str, float], list[tuple[NDArray[np.float32], str]]]:
     """Whole generations to EOS plus the tail: how often the tail holds speech (or any sound),
-    and how often EOS fires on the last loud frame, which shortens the ending."""
+    and how often EOS fires on the last loud frame, which shortens the ending. Also returns
+    (pcm, text) of the generations whose number (from 0) `keep` accepts."""
     speech, sound, early, no_eos, count = 0, 0, 0, 0, 0
+    kept = []
     for state in states:
         for index, text in enumerate(texts):
             torch.manual_seed(1000 * index + 7)
-            pcm, eos = _frames(
-                model, state, text if period else bare(text), period, lambda _: False
-            )
+            spoken = text if period else bare(text)
+            pcm, eos = _frames(model, state, spoken, period, lambda _: False)
+            if keep(count):
+                kept.append((pcm, spoken))
             count += 1
             if eos is None:
                 no_eos += 1
@@ -116,24 +137,49 @@ def tails(
             loud = np.flatnonzero(db[: eos + 1] > TAIL_SPEECH_DB)
             early += bool(len(loud)) and int(loud[-1]) >= eos
     ended = max(1, count - no_eos)
-    return {
+    report = {
         "trials": count,
         "no_eos": no_eos,
         "tail_speech_rate": round(speech / ended, 3),
         "tail_sound_rate": round(sound / ended, 3),
         "early_eos_rate": round(early / ended, 3),
     }
+    return report, kept
 
 
 def measure(
-    model: TTSModel, states: list[ModelState], texts: list[str]
+    model: TTSModel,
+    states: list[ModelState],
+    texts: list[str],
+    whisper: Any = None,  # noqa: ANN401
+    language: str = "english",
+    whisper_trials: int = 0,
+    phase: Callable[[str, Callable[[], Any]], Any] = lambda _, call: call(),
 ) -> dict[str, dict[str, float]]:
+    """With `whisper`, `whisper_trials` of the generations with a period, spread evenly over
+    voices and texts, are transcribed. `phase(name, call)` runs (and may time) each part."""
+    every = max(1, len(states) * len(texts) // whisper_trials) if whisper_trials else 0
+
+    def keep(number: int) -> bool:
+        if whisper is None or not every:
+            return False
+        return number % every == 0 and number // every < whisper_trials
+
     with torch.no_grad():
-        return {
-            "onsets": onsets(model, states, texts),
-            "tail_without_period": tails(model, states, texts, period=False),
-            "tail_with_period": tails(model, states, texts, period=True),
+        report = {
+            "onsets": phase("onsets", lambda: onsets(model, states, texts)),
+            "tail_without_period": phase(
+                "tail_without_period", lambda: tails(model, states, texts, period=False)[0]
+            ),
         }
+        report["tail_with_period"], clips = phase(
+            "tail_with_period", lambda: tails(model, states, texts, period=True, keep=keep)
+        )
+    if clips:
+        report["whisper"] = phase(
+            "whisper", lambda: transcribe.score(whisper, clips, model.sample_rate, language)
+        )
+    return report
 
 
 def problems(baseline: dict[str, Any], steered: dict[str, Any]) -> list[str]:
@@ -157,4 +203,13 @@ def problems(baseline: dict[str, Any], steered: dict[str, Any]) -> list[str]:
             value, plain = steered[section][key], baseline[section][key]
             if value > plain + slack:
                 found.append(f"{what} {label} in {value:.0%} of generations (baseline {plain:.0%})")
+    if "whisper" in steered and "whisper" in baseline:
+        heard, plain = steered["whisper"], baseline["whisper"]
+        if heard["first_word_right"] < plain["first_word_right"] - FIRST_WORD_SLACK:
+            found.append(
+                f"Whisper hears the first word in {heard['first_word_right']:.0%} of generations "
+                f"(baseline {plain['first_word_right']:.0%})"
+            )
+        if heard["wer"] > plain["wer"] + WER_SLACK:
+            found.append(f"Whisper WER is {heard['wer']:.1%} (baseline {plain['wer']:.1%})")
     return found
