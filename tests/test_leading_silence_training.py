@@ -10,6 +10,7 @@ from pocket_tts_timestamped import TTSModel
 from pocket_tts_timestamped.data.audio import audio_read
 from scripts.leading_silence.pipeline import silence_latents
 from scripts.leading_silence.sequences import (
+    VoiceKeyValues,
     encode_voice,
     prefill,
     prefix_embeddings,
@@ -38,7 +39,13 @@ def test_training_forward_matches_native_vectors(tmp_path: Path) -> None:
         # Two rows of different lengths: the shorter one is left-padded in the batch.
         prefixes = [prefix_embeddings(model, voice, tokenize(model, text)) for text in TEXTS]
         state, pad, width = prefill(model, prefixes, 0)
-        key_values = [row_key_values(model, state, row, pad, width) for row in range(2)]
+        # Both rows have the voice, so the second reads the first's voice keys/values.
+        store = VoiceKeyValues(model)
+        key_values = [
+            store.split(0, voice.shape[0], row_key_values(model, state, row, pad, width))
+            for row in range(2)
+        ]
+        assert key_values[0].voice is key_values[1].voice
         steer.attach(flow_lm)
         try:
             z_training, _ = student_forward(

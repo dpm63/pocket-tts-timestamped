@@ -18,7 +18,7 @@ import torch
 from pocket_tts_timestamped import AudioChunk, TTSModel
 from scripts.leading_silence import data, evaluate, transcribe
 from scripts.leading_silence.onsets import VOICED_DB, frame_db
-from scripts.leading_silence.sequences import FRAME_SAMPLES, encode_voice
+from scripts.leading_silence.sequences import FRAME_SAMPLES, PrefixKV, VoiceKeyValues, encode_voice
 from scripts.leading_silence.steer import Steer
 from scripts.leading_silence.train import (
     FullRows,
@@ -93,8 +93,9 @@ def generated_silence_latents(model: TTSModel, frames: int) -> torch.Tensor:
     raise RuntimeError(f"Only {len(found)} silent frames before speech in plain generations")
 
 
-def _stored_bytes(prefix_kv: list[dict[str, torch.Tensor]]) -> int:
-    return sum(tensor.nbytes for row in prefix_kv for tensor in row.values())
+def _text_bytes(prefix_kv: list[PrefixKV]) -> int:
+    """The rows' own stored keys/values; their voice parts are the store's."""
+    return sum(kv.nbytes for row in prefix_kv for kv in row.text.values())
 
 
 def _train(
@@ -104,6 +105,7 @@ def _train(
     prefix keys/values, several GB) are freed on return. Records the rows kept and their
     stored keys/values in `sizes`."""
     catalog = data.voices(folder, "train")
+    store = VoiceKeyValues(model)
     pool = data.texts(folder, "train")
     with torch.no_grad():
         latents = phase(
@@ -112,7 +114,8 @@ def _train(
         )
     pairs = data.sample_pairs(catalog, pool, 4 * setting.rows, seed=1)
     rows: Rows = phase(
-        "rollouts", lambda: make_rows(model, latents, pairs, setting.rows, ROLLOUT_BATCH, seed=1)
+        "rollouts",
+        lambda: make_rows(model, latents, pairs, setting.rows, ROLLOUT_BATCH, seed=1, store=store),
     )
     full: FullRows | None = None
     if setting.full_rows:
@@ -125,16 +128,25 @@ def _train(
             full = phase(
                 "full_rollouts",
                 lambda: make_full_rows(
-                    model, latents, full_pairs, setting.full_batch, setting.full_max_frames, seed=3
+                    model,
+                    latents,
+                    full_pairs,
+                    setting.full_batch,
+                    setting.full_max_frames,
+                    seed=3,
+                    store=store,
                 ),
             )
         finally:
             model.append_terminal_punctuation = model.config.append_terminal_punctuation
     sizes["rows"] = len(rows.k)
-    sizes["rows_stored_mb"] = round(_stored_bytes(rows.prefix_kv) / 2**20, 1)
+    sizes["rows_stored_mb"] = round(_text_bytes(rows.prefix_kv) / 2**20, 1)
     if full is not None:
         sizes["full_rows"] = len(full.k)
-        sizes["full_rows_stored_mb"] = round(_stored_bytes(full.prefix_kv) / 2**20, 1)
+        sizes["full_rows_stored_mb"] = round(_text_bytes(full.prefix_kv) / 2**20, 1)
+    sizes["voices_stored"] = store.voices
+    sizes["voices_stored_mb"] = round(store.nbytes / 2**20, 1)
+    sizes["train_voices"] = len(catalog)
     return phase("train", lambda: train(model, rows, full, setting))
 
 
@@ -262,10 +274,13 @@ def run(args: argparse.Namespace) -> None:
         report["full_run_times_s"] = _extrapolate(
             times, setting, full_setting, args.eval_texts, args.whisper_trials
         )
-        # Stored keys/values grow with the rows kept; the rest of the peak doesn't.
+        # Rows' own keys/values grow with the rows kept; the voices' at most to every train
+        # voice. The rest of the peak doesn't grow.
+        per_voice = sizes["voices_stored_mb"] / max(1, sizes["voices_stored"])
         report["full_run_stored_mb"] = round(
             sizes["rows_stored_mb"] * full_setting.rows / setting.rows
-            + sizes.get("full_rows_stored_mb", 0) * full_setting.full_pairs / setting.full_pairs,
+            + sizes.get("full_rows_stored_mb", 0) * full_setting.full_pairs / setting.full_pairs
+            + per_voice * sizes["train_voices"],
             1,
         )
     (out / REPORT_FILE).write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
