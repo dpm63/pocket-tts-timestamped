@@ -92,9 +92,13 @@ class Session:
         copy_state: bool = True,
         time_offset: float = 0.0,
         decoder_frames: int = 1000,
+        history: torch.Tensor | None = None,
     ):
         """`decoder_frames` sizes Mimi caches that cannot grow; `copy_state=False` generates in
-        `voice_state` itself. Both exist for `TTSModel`'s own generation."""
+        `voice_state` itself; `history` ([1, frames, ldim]) is audio played before this
+        session, which becomes its first (already decoded) latents, and the decoder starts
+        warmed up on its last frames: `set_text(window, history_from=0)` then continues it.
+        All exist for `TTSModel`'s own generation (teacher_force_previous_chunk)."""
         self.model = model
         self._flow_state = copy.deepcopy(voice_state) if copy_state else voice_state
         # set_text rewinds to here: positions are restored, and cache entries past them are
@@ -113,9 +117,14 @@ class Session:
             dtype=model.flow_lm.dtype,
         )
         self._mimi_steps = int(model.mimi.encoder_frame_rate / model.mimi.frame_rate)
-        self._mimi_state, warm = model._new_mimi_state(decoder_frames * self._mimi_steps)
+        continue_from = None
+        if history is not None:
+            continue_from = history[:, -model._DECODER_WARMUP_FRAMES :]
+        self._mimi_state, warm = model._new_mimi_state(
+            decoder_frames * self._mimi_steps, continue_from
+        )
         # Generated latents the caller kept (see `discard`); `set_text` replays them.
-        self.latents: list[torch.Tensor] = []
+        self.latents: list[torch.Tensor] = [] if history is None else list(history.split(1, dim=1))
         self._window: TextWindow | None = None
         self._capture: SelectedAttentionCapture | None = None
         self._next_input: torch.Tensor | None = None
@@ -125,7 +134,7 @@ class Session:
         # Decoder side.
         self._time_offset = time_offset
         self._decoded_samples = 0
-        self._decoded_frames = 0
+        self._decoded_frames = len(self.latents)
         # A fresh decoder clicks on its first samples; a warm one (leading-silence vectors) doesn't.
         self._fade_first_decode = not warm
         self._alignment: WordAlignment | None = None

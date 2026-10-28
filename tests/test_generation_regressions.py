@@ -150,7 +150,7 @@ def test_ordinary_decoder_rejects_timestamp_scores_in_drained_batch(
             mimi=object(),
             config=SimpleNamespace(mimi=SimpleNamespace(sample_rate=24000)),
             max_decoder_frames_per_call=0,
-            _new_mimi_state=lambda _sequence_length: ({}, False),
+            _new_mimi_state=lambda _sequence_length, _continue_from=None: ({}, False),
         ),
     )
     latents_queue = queue.Queue()

@@ -5,25 +5,30 @@ on:
     - cron: "17 6 * * 1"
   workflow_dispatch:
 
-permissions:
-  contents: write
-  pull-requests: write
-
 concurrency:
   group: sync-upstream-main
   cancel-in-progress: false
 
+env:
+  SYNC_BRANCH: automation/upstream-sync
+  UPSTREAM_URL: https://github.com/kyutai-labs/pocket-tts.git
+
 jobs:
-  open-sync-pr:
+  # Claude reads upstream content, so this job only gets a read-only token. The merge it produces
+  # is handed to the publish job as a git bundle.
+  resolve:
     runs-on: ubuntu-latest
-    env:
-      GH_TOKEN: ${{ github.token }}
-      SYNC_BRANCH: automation/upstream-sync
-      UPSTREAM_URL: https://github.com/kyutai-labs/pocket-tts.git
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      needed: ${{ steps.sync-state.outputs.needed }}
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          persist-credentials: false
 
       - name: Fetch upstream main
         run: |
@@ -33,6 +38,8 @@ jobs:
 
       - name: Check for an existing sync
         id: sync-state
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           if git merge-base --is-ancestor upstream/main origin/main; then
             echo "needed=false" >> "$GITHUB_OUTPUT"
@@ -55,49 +62,212 @@ jobs:
 
           echo "needed=true" >> "$GITHUB_OUTPUT"
 
-      - name: Merge upstream into the fork sync branch
-        id: merge
+      - name: Install uv
+        if: steps.sync-state.outputs.needed == 'true'
+        uses: astral-sh/setup-uv@v7
+
+      - name: Start the merge
         if: steps.sync-state.outputs.needed == 'true'
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git switch --force-create "$SYNC_BRANCH" origin/main
-
-          if git merge --no-ff --no-edit upstream/main; then
-            python scripts/normalize_upstream_namespace.py
-            if ! git diff --quiet; then
-              git add --all
-              git commit -m "Normalize upstream changes for the timestamped namespace"
-            fi
-            git push --force origin "$SYNC_BRANCH"
-            echo "mode=integrated" >> "$GITHUB_OUTPUT"
-          else
-            git merge --abort
-            git push --force origin upstream/main:"refs/heads/$SYNC_BRANCH"
-            echo "mode=conflicted" >> "$GITHUB_OUTPUT"
+          git merge --no-ff --no-commit upstream/main || true
+          if ! git rev-parse -q --verify MERGE_HEAD > /dev/null; then
+            echo "::error::git merge did not leave a merge in progress."
+            exit 1
           fi
+          echo "Conflicted paths:"
+          git diff --name-only --diff-filter=U
 
-      - name: Open upstream sync pull request
+      - name: Load the prompt
+        id: prompt
+        if: steps.sync-state.outputs.needed == 'true'
+        run: |
+          {
+            echo "text<<PROMPT_EOF"
+            cat .github/prompts/sync-upstream.md
+            echo "PROMPT_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Resolve the merge with Claude
+        id: claude
+        if: steps.sync-state.outputs.needed == 'true'
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          github_token: ${{ github.token }}
+          # Streams the session into the (public) log. Acceptable here: this job holds no secret
+          # besides the Claude token, which GitHub masks, and a read-only, job-scoped token.
+          show_full_output: true
+          prompt: ${{ steps.prompt.outputs.text }}
+          claude_args: |
+            --model claude-opus-5-5
+            --effort high
+            --json-schema '{"type":"object","properties":{"verdict":{"type":"string","enum":["clean","needs-review"]},"summary":{"type":"string"},"attention":{"type":"array","items":{"type":"string"}},"notes":{"type":"array","items":{"type":"string"}}},"required":["verdict","summary","attention","notes"],"additionalProperties":false}'
+            --allowedTools "Read,Edit,Write,Glob,Grep,Bash(git status:*),Bash(git diff:*),Bash(git log:*),Bash(git show:*),Bash(git ls-files:*),Bash(git grep:*),Bash(git merge-base:*),Bash(git add:*),Bash(git rm:*),Bash(git mv:*),Bash(git checkout --ours:*),Bash(git checkout --theirs:*),Bash(cat:*),Bash(head:*),Bash(tail:*),Bash(ls:*),Bash(wc:*),Bash(grep:*),Bash(uv sync:*),Bash(uv lock:*),Bash(uv run python:*),Bash(uv run ty check:*),Bash(uv run pytest:*),Bash(uv run --with numba==0.67.0 pytest:*),Bash(uvx pre-commit run:*)"
+
+      # The action hides Claude's output; on failure, show only its final result message.
+      - name: Show why Claude failed
+        if: failure() && steps.claude.outputs.execution_file != ''
+        env:
+          EXECUTION_FILE: ${{ steps.claude.outputs.execution_file }}
+        run: jq -r 'map(select(.type == "result")) | last | .result // "No result message."' "$EXECUTION_FILE"
+
+      # Claude's verdict is necessary but not sufficient: the checks below are what allow a merge
+      # straight to main.
+      - name: Check the result
         if: steps.sync-state.outputs.needed == 'true'
         env:
-          SYNC_MODE: ${{ steps.merge.outputs.mode }}
+          CLAUDE_RESULT: ${{ steps.claude.outputs.structured_output }}
         run: |
-          upstream_sha=$(git rev-parse upstream/main)
-          if [ "$SYNC_MODE" = "integrated" ]; then
-            body="Upstream kyutai-labs/pocket-tts at ${upstream_sha} has been merged into this branch. The timestamped package namespace was normalized automatically.
+          git add --all
 
-          Review the changes and merge this PR with a **merge commit**. Do not squash or rebase: preserving upstream ancestry prevents already-synchronized commits from appearing in future sync PRs."
-          else
-            body="Upstream kyutai-labs/pocket-tts at ${upstream_sha} could not be merged automatically, so this branch points at the exact upstream commit.
-
-          Resolve the conflicts locally, run scripts/normalize_upstream_namespace.py, and update this branch. Merge the PR with a **merge commit**; do not squash or rebase, so upstream ancestry is preserved."
+          # Upstream has no such files, so any change to them came from Claude.
+          if ! git diff --cached --quiet origin/main -- .github/prompts .github/workflows/sync-upstream.yml; then
+            echo "::error::The merge changes the sync automation itself."
+            exit 1
           fi
+
+          review_reasons=()
+          if ! git diff --cached --quiet origin/main -- .github; then
+            review_reasons+=("The merge changes workflow files, which are always reviewed by hand: $(git diff --cached --name-only origin/main -- .github | paste -sd ' ')")
+          fi
+          if git grep -qE '^(<{7}|>{7})( |$)'; then
+            review_reasons+=("Conflict markers remain in: $(git grep -lE '^(<{7}|>{7})( |$)' | paste -sd ' ')")
+          fi
+          uv sync --dev || review_reasons+=("uv sync --dev failed")
+          uvx pre-commit run --all-files || review_reasons+=("pre-commit failed")
+          uv run ty check || review_reasons+=("ty check failed")
+          uv run pytest -n 3 ./tests ./training/tests || review_reasons+=("pytest failed")
+          # Skipped by the run above without numba; see the timestamp-tooling job in run-tests.yml.
+          uv run --with numba==0.67.0 pytest -q tests/test_timestamp_evaluation.py \
+            || review_reasons+=("timestamp evaluation tests failed")
+          # Stage anything the checks rewrote so the commit matches what was tested.
+          git add --all
+
+          mkdir -p "$RUNNER_TEMP/sync"
+          verdict=$(jq -r '.verdict' <<< "$CLAUDE_RESULT")
+          auto_merge=false
+          if [ "$verdict" = "clean" ] && [ ${#review_reasons[@]} -eq 0 ]; then
+            auto_merge=true
+          fi
+
+          printf '%s\n' "${review_reasons[@]}" | jq -R . | jq -s \
+            --argjson claude "$CLAUDE_RESULT" \
+            --argjson auto_merge "$auto_merge" \
+            --arg upstream_sha "$(git rev-parse upstream/main)" \
+            '{auto_merge: $auto_merge, upstream_sha: $upstream_sha,
+              review_reasons: map(select(. != "")), claude: $claude}' > "$RUNNER_TEMP/sync/sync-result.json"
+          cat "$RUNNER_TEMP/sync/sync-result.json"
+
+      - name: Commit the merge
+        if: steps.sync-state.outputs.needed == 'true'
+        run: |
+          short_sha=$(git rev-parse --short upstream/main)
+          {
+            echo "Merge upstream through ${short_sha}"
+            echo
+            jq -r '.claude.summary' "$RUNNER_TEMP/sync/sync-result.json"
+          } > "$RUNNER_TEMP/commit-message.txt"
+          git commit --no-verify -F "$RUNNER_TEMP/commit-message.txt"
+          git bundle create "$RUNNER_TEMP/sync/sync.bundle" origin/main..HEAD
+
+      - name: Write the run summary
+        if: steps.sync-state.outputs.needed == 'true'
+        run: |
+          jq -r '
+            def bullets: if length == 0 then "None." else map("- " + .) | join("\n") end;
+            "## Upstream sync\n\n"
+            + "Claude verdict: **\(.claude.verdict)**. Merging straight to main: **\(.auto_merge)**.\n\n"
+            + "### Why it needs review\n\n\((.review_reasons + .claude.attention) | bullets)\n\n"
+            + "### Notes for later\n\n\(.claude.notes | bullets)\n\n"
+            + "### Summary\n\n\(.claude.summary)\n"
+          ' "$RUNNER_TEMP/sync/sync-result.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Hand the merge to the publish job
+        if: steps.sync-state.outputs.needed == 'true'
+        uses: actions/upload-artifact@v4
+        with:
+          name: upstream-sync
+          path: ${{ runner.temp }}/sync/
+          retention-days: 7
+
+  # Pushes and the pull request use a personal access token so that workflow-file changes can be
+  # pushed and the usual workflows (tests, timestamp-head evaluation) run on the result.
+  publish:
+    needs: resolve
+    if: needs.resolve.outputs.needed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      GH_TOKEN: ${{ secrets.SYNC_PUSH_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.SYNC_PUSH_TOKEN }}
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: upstream-sync
+          path: ${{ runner.temp }}/upstream-sync
+
+      # Re-check here, where the write token lives, instead of trusting the resolve job.
+      - name: Verify the merge
+        id: decision
+        run: |
+          result="$RUNNER_TEMP/upstream-sync/sync-result.json"
+          git fetch --no-tags origin main
+          git fetch "$RUNNER_TEMP/upstream-sync/sync.bundle" HEAD
+          merge=$(git rev-parse FETCH_HEAD)
+          if [ "$(git rev-parse "$merge^1")" != "$(git rev-parse origin/main)" ]; then
+            echo "::error::The merge's first parent is not the current origin/main."
+            exit 1
+          fi
+          if ! git diff --quiet origin/main "$merge" -- .github/prompts .github/workflows/sync-upstream.yml; then
+            echo "::error::The merge changes the sync automation itself."
+            exit 1
+          fi
+          echo "MERGE_SHA=$merge" >> "$GITHUB_ENV"
+
+          auto_merge=$(jq -r '.auto_merge' "$result")
+          if ! git diff --quiet origin/main "$merge" -- .github; then
+            auto_merge=false
+          fi
+          echo "auto_merge=$auto_merge" >> "$GITHUB_OUTPUT"
+
+      - name: Push to main
+        if: steps.decision.outputs.auto_merge == 'true'
+        run: |
+          git push origin "$MERGE_SHA:refs/heads/main"
+
+      - name: Open a pull request for review
+        if: steps.decision.outputs.auto_merge != 'true'
+        run: |
+          result="$RUNNER_TEMP/upstream-sync/sync-result.json"
+          git push --force origin "$MERGE_SHA:refs/heads/$SYNC_BRANCH"
+
+          {
+            echo "Claude merged upstream kyutai-labs/pocket-tts at $(jq -r '.upstream_sha' "$result") but flagged it for review."
+            echo
+            echo "## Needs attention"
+            echo
+            jq -r '(.review_reasons + .claude.attention) | if length == 0 then "- Claude marked the merge as needing review without naming specifics." else map("- " + .) | join("\n") end' "$result"
+            echo
+            echo "## Summary"
+            echo
+            jq -r '.claude.summary' "$result"
+            echo
+            echo "Merge this PR with a **merge commit**. Do not squash or rebase: preserving upstream ancestry prevents already-synchronized commits from appearing in future sync PRs."
+            echo
+            echo "Created by the weekly upstream synchronization workflow."
+          } > "$RUNNER_TEMP/pr-body.md"
 
           gh pr create \
             --repo "$GITHUB_REPOSITORY" \
             --base main \
             --head "$SYNC_BRANCH" \
             --title "Sync upstream main" \
-            --body "${body}
-
-          Created by the weekly upstream synchronization workflow."
+            --body-file "$RUNNER_TEMP/pr-body.md"

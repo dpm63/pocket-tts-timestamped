@@ -19,7 +19,7 @@ This will generate a WAV file `./tts_output.wav` with the default text and voice
 - `--text TEXT`: Text to generate (default: "Hello world! I am Kyutai Pocket TTS. I'm fast enough to run on small CPUs. I hope you'll like me.")
 - `--voice VOICE`: Path to audio conditioning file (voice to clone). Defaults to a built-in voice chosen from the language: `giovanni` (it) for italian, `lola` (es) for spanish, `juergen` (de) for german, `rafael` (pt) for portuguese, `estelle` (fr) for french, `alba` (en) otherwise. With `--config` or `--checkpoint`, defaults to [alba's audio file](https://huggingface.co/kyutai/tts-voices/blob/main/alba-mackenna/casual.wav) instead of the voice name, since the pre-made voices only exist for the released language models. Urls and local paths are supported.
 - `--output-path OUTPUT_PATH`: Output path for generated audio (default: "./tts_output.wav")
-- `--language LANGUAGE`: Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_18m_2026-10"`, `"english_18m_refl_2026-10"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`, `"english_2m_2026-10"`, `"english_2m_refl_2026-10"`, `"english_7m_2026-10"`, `"english_7m_refl_2026-10"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`. Defaults to `english`, the same model as `english_2026-09_2`, including its calibrated timestamp heads.
+- `--language LANGUAGE`: Built-in model config. Available values: `"dutch"`, `"dutch_24l"`, `"english"`, `"english_18m_2026-10"`, `"english_18m_refl_2026-10"`, `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`, `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`, `"english_2026-10"`, `"english_2m_2026-10"`, `"english_2m_refl_2026-10"`, `"english_7m_2026-10"`, `"english_7m_refl_2026-10"`, `"english_drifting_26-09"`, `"french"`, `"french_24l"`, `"german"`, `"german_24l"`, `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`, `"spanish_24l"`. Defaults to `english`, the same model as `english_2026-10`.
 
 ### Generation Parameters
 
@@ -29,6 +29,8 @@ This will generate a WAV file `./tts_output.wav` with the default text and voice
 - `--noise-clamp NOISE_CLAMP`: Noise clamp value (default: None)
 - `--eos-threshold EOS_THRESHOLD`: EOS threshold (default: -4.0)
 - `--frames-after-eos FRAMES_AFTER_EOS`: Number of frames to generate after EOS (default: None, auto-calculated based on the text length). Each frame is 80ms.
+- `--max-tokens MAX_TOKENS`: Long texts are generated in chunks of at most this many tokens (default: 50, or 25 with `--teacher-force-previous-chunk`)
+- `--teacher-force-previous-chunk`: Generate each chunk of a long text as the continuation of the previous one (the previous chunk's audio latents are teacher-forced, with the text of both chunks) instead of starting afresh from the voice prompt (default: False). Slightly slower.
 
 ### Performance Options
 

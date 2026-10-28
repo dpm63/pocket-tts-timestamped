@@ -9,7 +9,7 @@ import time
 from collections.abc import Generator, Iterator
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, NamedTuple
 from urllib.parse import urljoin
 
 import safetensors
@@ -27,6 +27,7 @@ from pocket_tts_timestamped.default_parameters import (
     DEFAULT_NOISE_CLAMP,
     DEFAULT_SAMPLER_DECODE_STEPS,
     MAX_TOKEN_PER_CHUNK,
+    MAX_TOKEN_PER_CHUNK_TEACHER_FORCED,
 )
 from pocket_tts_timestamped.models.flow_lm import FlowLMModel
 from pocket_tts_timestamped.models.mimi import build_mimi
@@ -52,7 +53,11 @@ from pocket_tts_timestamped.timestamps.records import (
     WordEnd,
     WordTimestamp,
 )
-from pocket_tts_timestamped.timestamps.text import TimestampTextChunk, _iter_timestamp_text_chunks
+from pocket_tts_timestamped.timestamps.text import (
+    TimestampTextChunk,
+    _continuation_timestamp_text_chunk,
+    _iter_timestamp_text_chunks,
+)
 from pocket_tts_timestamped.utils.config import CONFIGS_DIR, Config, load_config
 from pocket_tts_timestamped.utils.utils import (
     _ORIGINS_OF_PREDEFINED_VOICES,
@@ -77,6 +82,15 @@ LatentItem = torch.Tensor | Frame
 LatentQueue = queue.Queue[LatentItem | None]
 # Decoder thread -> generator: ("chunk", audio), ("done", None) or ("error", exception).
 ResultQueue = queue.Queue[tuple[str, Any]]
+
+
+class _PreparedTextChunk(NamedTuple):
+    # The chunk on its own, as the model reads it.
+    text: str
+    frames_after_eos: int
+    # With teacher_force_previous_chunk, the previous chunk's text and this one's, prepared
+    # together; the chunk is generated from it when the previous chunk's frames are forced.
+    continuation_text: str | None = None
 
 
 def _iter_latent_batches(
@@ -139,6 +153,9 @@ class TTSModel(nn.Module):
     _MIN_FRAMES_BEFORE_EOS = 6
     # ((device, dtype), decoder state) after the leading-silence warm-up; see _new_mimi_state.
     _warm_mimi_cache: tuple[tuple[torch.device, torch.dtype], ModelState] | None = None
+    # teacher_force_previous_chunk: the Mimi decoder of a chunk first runs over the last forced
+    # frames (about 1 s), so that its audio follows on from the previous chunk's.
+    _DECODER_WARMUP_FRAMES = 12
 
     def __init__(
         self,
@@ -363,14 +380,14 @@ class TTSModel(nn.Module):
                 the `config` argument. Available options
                 are `"english_2026-01"`, `"english_2026-04"`, `"english_2026-04_24l"`,
                 `"english_2026-09"`, `"english_2026-09_2"`, `"english_2026-09_24l"`,
-                `"english_drifting_26-09"`, `"english_18m_2026-10"`, `"english_18m_refl_2026-10"`,
-                `"english_7m_2026-10"`, `"english_7m_refl_2026-10"`, `"english_2m_2026-10"`,
-                `"english_2m_refl_2026-10"`, `"english"`, `"french"`, `"french_24l"`,
-                `"dutch"`, `"dutch_24l"`, `"german"`, `"german_24l"`, `"italian"`,
-                `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`,
+                `"english_2026-10"`, `"english_drifting_26-09"`, `"english_18m_2026-10"`,
+                `"english_18m_refl_2026-10"`, `"english_7m_2026-10"`, `"english_7m_refl_2026-10"`,
+                `"english_2m_2026-10"`, `"english_2m_refl_2026-10"`, `"english"`, `"french"`,
+                `"french_24l"`, `"dutch"`, `"dutch_24l"`, `"german"`, `"german_24l"`,
+                `"italian"`, `"italian_24l"`, `"portuguese"`, `"portuguese_24l"`, `"spanish"`,
                 `"spanish_24l"`.
                 If neither `config` nor `language` is provided, defaults to `"english"`,
-                the same model as `"english_2026-09_2"`.
+                the same model as `"english_2026-10"`.
             config: A path to a custom YAML config file: a local path, an `https://`
                 URL, or an `hf://` path (e.g. `"hf://<repo_id>/<path>[@revision]"`).
             temp: Sampling temperature for generation. Higher values produce more
@@ -513,13 +530,23 @@ class TTSModel(nn.Module):
         self.flow_lm.register_buffer("leading_silence_warmup", warmup.to(device), persistent=False)
         self._new_mimi_state(0)  # warm up now rather than on the first utterance
 
-    def _new_mimi_state(self, sequence_length: int) -> tuple[ModelState, bool]:
-        """A decoder state for a new utterance, and whether it is warm.
+    def _new_mimi_state(
+        self, sequence_length: int, continue_from: torch.Tensor | None = None
+    ) -> tuple[ModelState, bool]:
+        """A decoder state for new audio, and whether it is warm.
 
-        With leading-silence vectors it is a copy of a decoder that has decoded the warm-up
-        latents, built once per device and dtype; otherwise a fresh state, whose first frame
-        needs fading in.
+        `continue_from` ([1, frames, ldim]) is the end of the audio played before
+        (teacher_force_previous_chunk): a fresh decoder runs over it, so the new audio follows
+        on. Otherwise, with leading-silence vectors it is a copy of a decoder that has decoded
+        the warm-up latents, built once per device and dtype; without, a fresh state, whose
+        first frame needs fading in.
         """
+        if continue_from is not None:
+            steps_per_latent = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
+            steps = continue_from.shape[1] * steps_per_latent
+            state = init_states(self.mimi, batch_size=1, sequence_length=sequence_length + steps)
+            self._warm_up_decoder(continue_from, state)
+            return state, True
         warmup = self.flow_lm.leading_silence_warmup
         if warmup is None:
             return init_states(self.mimi, batch_size=1, sequence_length=sequence_length), False
@@ -529,13 +556,18 @@ class TTSModel(nn.Module):
             steps_per_latent = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
             steps = warmup.shape[0] * steps_per_latent
             state = init_states(self.mimi, batch_size=1, sequence_length=steps)
-            with torch.no_grad():
-                self.mimi.decode_from_latent(
-                    warmup[None] * self.flow_lm.emb_std + self.flow_lm.emb_mean, state
-                )
-            increment_steps(self.mimi, state, increment=steps)
+            self._warm_up_decoder(warmup[None], state)
             self._warm_mimi_cache = (key, state)
         return copy.deepcopy(self._warm_mimi_cache[1]), True
+
+    @torch.no_grad
+    def _warm_up_decoder(self, latents: torch.Tensor, mimi_state: ModelState) -> None:
+        """Decode normalized `latents` ([1, frames, ldim]) into `mimi_state`, dropping the audio."""
+        self.mimi.decode_from_latent(
+            latents * self.flow_lm.emb_std + self.flow_lm.emb_mean, mimi_state
+        )
+        steps_per_latent = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
+        increment_steps(self.mimi, mimi_state, increment=steps_per_latent * latents.shape[1])
 
     def _run_flow_lm_and_increment_step(
         self,
@@ -660,14 +692,16 @@ class TTSModel(nn.Module):
         result_queue: ResultQueue,
         mimi_sequence_length: int,
         mimi_steps_per_latent: int,
+        warmup_latents: torch.Tensor | None = None,
     ) -> None:
         """Worker thread function for decoding audio latents from queue with immediate streaming."""
         try:
             audio_chunks = []
-            mimi_state, warm = self._new_mimi_state(mimi_sequence_length)
+            mimi_state, warm = self._new_mimi_state(mimi_sequence_length, warmup_latents)
             # A fresh Mimi decoder state puts a small step (about -41 dBFS) in its first samples, heard
             # as a click at the start of every chunk: fade the first 5 ms in. (The longer burst some
-            # voices produced came from prompts ending on speech, handled by end_on_pause.)
+            # voices produced came from prompts ending on speech, handled by end_on_pause.) A warm
+            # decoder (leading-silence vectors, or continuing the previous chunk) needs no fade.
             first_batch = not warm
             for batch in _iter_latent_batches(latents_queue, self.max_decoder_frames_per_call):
                 latents = []
@@ -748,9 +782,10 @@ class TTSModel(nn.Module):
         self,
         model_state: ModelState,
         text_to_generate: str,
-        max_tokens: int = MAX_TOKEN_PER_CHUNK,
+        max_tokens: int | None = None,
         frames_after_eos: int | None = None,
         copy_state: bool = True,
+        teacher_force_previous_chunk: bool = False,
     ) -> torch.Tensor:
         """Generate complete audio tensor from text input.
 
@@ -774,6 +809,14 @@ class TTSModel(nn.Module):
             copy_state: Whether to create a deep copy of the model state before
                 generation. If True, preserves the original state for reuse.
                 If False, modifies the input state in-place. Defaults to True.
+            max_tokens: Long texts are generated in chunks of at most this many tokens.
+                Defaults to 50, or 25 with `teacher_force_previous_chunk`.
+            teacher_force_previous_chunk: When True, each chunk after the first is generated
+                from the voice prompt with the text of the previous chunk and of this one, the
+                previous chunk's generated latents being teacher-forced as the first frames, so
+                that the new chunk continues the previous one instead of starting afresh. Costs
+                one prefill of the previous chunk's frames and text per chunk. Forces
+                `copy_state=True`. Defaults to False.
 
         Returns:
             torch.Tensor: Generated audio tensor with shape [channels, samples]
@@ -807,6 +850,7 @@ class TTSModel(nn.Module):
             frames_after_eos=frames_after_eos,
             copy_state=copy_state,
             max_tokens=max_tokens,
+            teacher_force_previous_chunk=teacher_force_previous_chunk,
         ):
             audio_chunks.append(chunk)
         return torch.cat(audio_chunks, dim=0)
@@ -816,10 +860,11 @@ class TTSModel(nn.Module):
         self,
         model_state: ModelState,
         text_to_generate: str,
-        max_tokens: int = MAX_TOKEN_PER_CHUNK,
+        max_tokens: int | None = None,
         frames_after_eos: int | None = None,
         copy_state: bool = True,
         stop: threading.Event | None = None,
+        teacher_force_previous_chunk: bool = False,
     ) -> Iterator[torch.Tensor]:
         """Generate audio streaming chunks from text input.
 
@@ -842,6 +887,14 @@ class TTSModel(nn.Module):
             copy_state: Whether to create a deep copy of the model state before
                 generation. If True, preserves the original state for reuse.
                 If False, modifies the input state in-place. Defaults to True.
+            max_tokens: Long texts are generated in chunks of at most this many tokens.
+                Defaults to 50, or 25 with `teacher_force_previous_chunk`.
+            teacher_force_previous_chunk: When True, each chunk after the first is generated
+                from the voice prompt with the text of the previous chunk and of this one, the
+                previous chunk's generated latents being teacher-forced as the first frames, so
+                that the new chunk continues the previous one instead of starting afresh. Costs
+                one prefill of the previous chunk's frames and text per chunk. Forces
+                `copy_state=True`. Defaults to False.
             stop: Optional event that ends generation after the current frame.
 
         Yields:
@@ -877,23 +930,54 @@ class TTSModel(nn.Module):
         if stop is None:
             stop = threading.Event()
 
-        for chunk, effective_frames in self._prepare_text_chunks(
-            text_to_generate, max_tokens, frames_after_eos
+        prev_latents: list[torch.Tensor] = []
+        for chunk in self._prepare_text_chunks(
+            text_to_generate, max_tokens, frames_after_eos, teacher_force_previous_chunk
         ):
             if stop.is_set():
                 break
+            forced = None
+            text = chunk.text
+            if chunk.continuation_text is not None and prev_latents:
+                forced = torch.cat(prev_latents, dim=1)
+                text = chunk.continuation_text
+            prev_latents = []
             yield from self._generate_audio_stream_short_text(
                 model_state=model_state,
-                text_to_generate=chunk,
-                frames_after_eos=effective_frames,
-                copy_state=copy_state,
+                text_to_generate=text,
+                frames_after_eos=chunk.frames_after_eos,
+                copy_state=copy_state or teacher_force_previous_chunk,
                 stop=stop,
+                latents_out=prev_latents if teacher_force_previous_chunk else None,
+                forced_latents=forced,
             )
 
+    def _prepare_text_prompt(self, text: str) -> tuple[str, int]:
+        return prepare_text_prompt(
+            text,
+            self.pad_with_spaces_for_short_inputs,
+            self.remove_semicolons,
+            self.append_terminal_punctuation,
+            self.capitalize_first_letter,
+            self.replace_characters,
+        )
+
     def _prepare_text_chunks(
-        self, text: str, max_tokens: int, frames_after_eos: int | None
-    ) -> list[tuple[str, int]]:
+        self,
+        text: str,
+        max_tokens: int | None,
+        frames_after_eos: int | None,
+        teacher_force_previous_chunk: bool = False,
+    ) -> list[_PreparedTextChunk]:
         """Prepare each synthesis prompt before tokenization or timestamp mapping."""
+        if max_tokens is None:
+            max_tokens = (
+                MAX_TOKEN_PER_CHUNK_TEACHER_FORCED
+                if teacher_force_previous_chunk
+                else MAX_TOKEN_PER_CHUNK
+            )
+        # Long texts are generated chunk by chunk. By default every chunk starts afresh from the
+        # voice prompt; with teacher_force_previous_chunk it continues the previous one.
         chunks = split_into_best_sentences(
             self.flow_lm.conditioner.tokenizer,
             text,
@@ -905,30 +989,33 @@ class TTSModel(nn.Module):
             replace_characters=self.replace_characters,
         )
         prepared_chunks = []
+        prev_chunk: str | None = None
         for chunk in chunks:
-            prepared, frames_guess = prepare_text_prompt(
-                chunk,
-                self.pad_with_spaces_for_short_inputs,
-                self.remove_semicolons,
-                self.append_terminal_punctuation,
-                self.capitalize_first_letter,
-                self.replace_characters,
-            )
+            # The EOS delay depends on the new chunk only.
+            prepared, frames_guess = self._prepare_text_prompt(chunk)
+            continuation = None
+            if teacher_force_previous_chunk and prev_chunk is not None:
+                continuation, _ = self._prepare_text_prompt(f"{prev_chunk} {chunk}")
             effective_frames = (
                 frames_after_eos if frames_after_eos is not None else frames_guess + 2
             )
-            prepared_chunks.append((prepared, effective_frames))
+            prepared_chunks.append(_PreparedTextChunk(prepared, effective_frames, continuation))
+            prev_chunk = chunk
         return prepared_chunks
 
     def generate_audio_with_timestamps(
         self,
         model_state: ModelState,
         text_to_generate: str,
-        max_tokens: int = MAX_TOKEN_PER_CHUNK,
+        max_tokens: int | None = None,
         frames_after_eos: int | None = None,
         copy_state: bool = True,
+        teacher_force_previous_chunk: bool = False,
     ) -> TimestampedAudio:
-        """Generate audio and completed word-level timestamps."""
+        """Generate audio and completed word-level timestamps.
+
+        Takes the options of `generate_audio()` and produces the same audio.
+        """
 
         stream = self.generate_audio_with_timestamps_stream(
             model_state=model_state,
@@ -936,6 +1023,7 @@ class TTSModel(nn.Module):
             max_tokens=max_tokens,
             frames_after_eos=frames_after_eos,
             copy_state=copy_state,
+            teacher_force_previous_chunk=teacher_force_previous_chunk,
         )
         audio_chunks = []
         words = []
@@ -964,13 +1052,15 @@ class TTSModel(nn.Module):
         self,
         model_state: ModelState,
         text_to_generate: str,
-        max_tokens: int = MAX_TOKEN_PER_CHUNK,
+        max_tokens: int | None = None,
         frames_after_eos: int | None = None,
         copy_state: bool = True,
         stop: threading.Event | None = None,
+        teacher_force_previous_chunk: bool = False,
     ) -> Generator[TimestampEvent, None, None]:
         """Stream audio and word events; `stop` ends generation after the current frame.
 
+        Takes the options of `generate_audio_stream()` and produces the same audio.
         Queued audio is drained and an open word is closed before the stream ends.
         Closing the iterator instead immediately cancels and joins its workers.
         """
@@ -988,6 +1078,7 @@ class TTSModel(nn.Module):
             frames_after_eos=frames_after_eos,
             copy_state=copy_state,
             stop=stop,
+            teacher_force_previous_chunk=teacher_force_previous_chunk,
         )
 
     @torch.no_grad
@@ -995,35 +1086,45 @@ class TTSModel(nn.Module):
         self,
         model_state: ModelState,
         text_to_generate: str,
-        max_tokens: int,
+        max_tokens: int | None,
         frames_after_eos: int | None,
         copy_state: bool,
         stop: threading.Event | None = None,
+        teacher_force_previous_chunk: bool = False,
     ) -> Generator[TimestampEvent, None, None]:
         if frames_after_eos is None:
             frames_after_eos = self.model_recommended_frames_after_eos
         if stop is None:
             stop = threading.Event()
-        prepared_chunks = self._prepare_text_chunks(text_to_generate, max_tokens, frames_after_eos)
+        prepared_chunks = self._prepare_text_chunks(
+            text_to_generate, max_tokens, frames_after_eos, teacher_force_previous_chunk
+        )
+        tokenizer = self.flow_lm.conditioner.tokenizer
         timestamp_chunks = _iter_timestamp_text_chunks(
-            text_to_generate,
-            (chunk for chunk, _ in prepared_chunks),
-            self.flow_lm.conditioner.tokenizer,
-            best_effort=True,
+            text_to_generate, (chunk.text for chunk in prepared_chunks), tokenizer, best_effort=True
         )
         time_offset = 0.0
-        for timestamp_chunk, (_, effective_frames) in zip(
-            timestamp_chunks, prepared_chunks, strict=True
-        ):
+        prev_latents: list[torch.Tensor] = []
+        for timestamp_chunk, chunk in zip(timestamp_chunks, prepared_chunks, strict=True):
             if stop.is_set():
                 break
+            forced = None
+            if chunk.continuation_text is not None and prev_latents:
+                forced = torch.cat(prev_latents, dim=1)
+                # Only this chunk's words are timed; the previous chunk's text is context.
+                timestamp_chunk = _continuation_timestamp_text_chunk(
+                    timestamp_chunk, chunk.continuation_text, tokenizer
+                )
+            prev_latents = []
             time_offset = yield from self._generate_audio_with_timestamps_short_text(
                 model_state=model_state,
                 timestamp_chunk=timestamp_chunk,
-                frames_after_eos=effective_frames,
-                copy_state=copy_state,
+                frames_after_eos=chunk.frames_after_eos,
+                copy_state=copy_state or teacher_force_previous_chunk,
                 time_offset=time_offset,
                 stop=stop,
+                latents_out=prev_latents if teacher_force_previous_chunk else None,
+                forced_latents=forced,
             )
 
     @torch.no_grad
@@ -1035,8 +1136,11 @@ class TTSModel(nn.Module):
         copy_state: bool,
         time_offset: float,
         stop: threading.Event | None = None,
+        latents_out: list[torch.Tensor] | None = None,
+        forced_latents: torch.Tensor | None = None,
     ) -> Generator[TimestampEvent, None, float]:
         prepared = self._prepare_timestamp_text_chunk(timestamp_chunk)
+        # With forced frames the text also holds the previous chunk's: a looser upper bound.
         max_gen_len = self._estimate_max_gen_len(prepared.shape[1])
         session = Session(
             self,
@@ -1044,6 +1148,7 @@ class TTSModel(nn.Module):
             copy_state=copy_state,
             time_offset=time_offset,
             decoder_frames=max_gen_len,
+            history=forced_latents,
         )
         window = TextWindow(timestamp_chunk, prepared, frames_after_eos)
 
@@ -1060,11 +1165,13 @@ class TTSModel(nn.Module):
         audio_end = time_offset
         try:
             with display_execution_time("Prompting text"):
-                session.set_text(window, reserve_frames=max_gen_len)
+                # Teacher forcing replays the previous chunk's frames after BOS and the text.
+                history_from = None if forced_latents is None else 0
+                session.set_text(window, history_from=history_from, reserve_frames=max_gen_len)
             generation_thread = threading.Thread(
                 target=self._generate_session_frames,
                 args=(session, max_gen_len, frames_after_eos, frames_queue, result_queue),
-                kwargs={"cancel_event": cancel_event, "stop": stop},
+                kwargs={"cancel_event": cancel_event, "stop": stop, "latents_out": latents_out},
                 daemon=True,
             )
             generation_thread.start()
@@ -1096,8 +1203,14 @@ class TTSModel(nn.Module):
         result_queue: ResultQueue,
         cancel_event: threading.Event,
         stop: threading.Event | None = None,
+        latents_out: list[torch.Tensor] | None = None,
     ) -> None:
-        """Generate one text's frames into `frames_queue`, ending `frames_after_eos` after EOS."""
+        """Generate one text's frames into `frames_queue`, ending `frames_after_eos` after EOS.
+        The latents of the queued frames are also appended to `latents_out`.
+
+        EOS is gated as in `_autoregressive_generation`, on frames generated since `set_text`,
+        so the audio is the same as ordinary generation's when it replays a previous chunk.
+        """
 
         def stopped() -> bool:
             return cancel_event.is_set() or (stop is not None and stop.is_set())
@@ -1112,10 +1225,16 @@ class TTSModel(nn.Module):
                     frame = session.generate_frame()
                     if stopped():
                         break
-                    if frame.eos and eos_step is None:
+                    if (
+                        frame.eos
+                        and eos_step is None
+                        and generation_step >= self._MIN_FRAMES_BEFORE_EOS
+                    ):
                         eos_step = generation_step
                     if eos_step is not None and generation_step >= eos_step + frames_after_eos:
                         break
+                    if latents_out is not None:
+                        latents_out.append(frame.latent)
                     frames_queue.put(frame)
                 assert timer.elapsed_time_ms is not None
                 steps_times.append(timer.elapsed_time_ms)
@@ -1162,14 +1281,21 @@ class TTSModel(nn.Module):
         frames_after_eos: int,
         copy_state: bool,
         stop: threading.Event,
+        latents_out: list[torch.Tensor] | None = None,
+        forced_latents: torch.Tensor | None = None,
     ) -> Iterator[torch.Tensor]:
         if copy_state:
             model_state = copy.deepcopy(model_state)
 
         prepared = self.flow_lm.conditioner.prepare(text_to_generate)
         token_count = prepared.shape[1]
+        # With forced frames the text also holds the previous chunk's: a looser upper bound.
         max_gen_len = self._estimate_max_gen_len(token_count)
         mimi_steps_per_latent = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
+        warmup = None
+        if forced_latents is not None:
+            warmup = forced_latents[:, -self._DECODER_WARMUP_FRAMES :]
+        # _new_mimi_state makes room for the warm-up frames.
         mimi_sequence_length = max_gen_len * mimi_steps_per_latent
 
         # Set up multithreaded generation and decoding
@@ -1179,7 +1305,7 @@ class TTSModel(nn.Module):
         # Start decoder worker thread
         decoder_thread = threading.Thread(
             target=self._decode_audio_worker,
-            args=(latents_queue, result_queue, mimi_sequence_length, mimi_steps_per_latent),
+            args=(latents_queue, result_queue, mimi_sequence_length, mimi_steps_per_latent, warmup),
             daemon=True,
         )
         logger.info("starting timer now!")
@@ -1195,6 +1321,8 @@ class TTSModel(nn.Module):
             latents_queue=latents_queue,
             result_queue=result_queue,
             stop=stop,
+            latents_out=latents_out,
+            forced_latents=forced_latents,
         )
 
         # Stream audio chunks as they become available
@@ -1244,19 +1372,41 @@ class TTSModel(nn.Module):
         latents_queue: LatentQueue,
         result_queue: ResultQueue,
         stop: threading.Event | None = None,
+        latents_out: list[torch.Tensor] | None = None,
+        forced_latents: torch.Tensor | None = None,
     ) -> threading.Thread:
         token_count = prepared.shape[1]
+        n_forced = 0 if forced_latents is None else forced_latents.shape[1]
         current_end = self._flow_lm_current_end(model_state)
-        required_len = current_end + token_count + max_gen_len
+        required_len = current_end + token_count + n_forced + max_gen_len
         self._expand_kv_cache(model_state, sequence_length=required_len)
 
+        first_input = None
         with display_execution_time("Prompting text"):
-            self._run_flow_lm_and_increment_step(model_state=model_state, text_tokens=prepared)
+            if forced_latents is None or n_forced == 0:
+                self._run_flow_lm_and_increment_step(model_state=model_state, text_tokens=prepared)
+            else:
+                # Teacher forcing: BOS then every forced frame but the last, which is the input
+                # of the first generated step. The outputs of this prefill, EOS included, are
+                # discarded: EOS can only fire on new frames.
+                bos = torch.full_like(forced_latents[:, :1], float("NaN"))
+                self._run_flow_lm_and_increment_step(
+                    model_state=model_state,
+                    text_tokens=prepared,
+                    backbone_input_latents=torch.cat([bos, forced_latents[:, :-1]], dim=1),
+                )
+                first_input = forced_latents[:, -1:]
 
         def run_generation() -> None:
             try:
                 self._autoregressive_generation(
-                    model_state, max_gen_len, frames_after_eos, latents_queue, stop=stop
+                    model_state,
+                    max_gen_len,
+                    frames_after_eos,
+                    latents_queue,
+                    stop=stop,
+                    latents_out=latents_out,
+                    first_input=first_input,
                 )
             except Exception as error:
                 logger.error("Error in autoregressive generation: %s", error)
@@ -1278,13 +1428,17 @@ class TTSModel(nn.Module):
         frames_after_eos: int,
         latents_queue: LatentQueue,
         stop: threading.Event | None = None,
+        latents_out: list[torch.Tensor] | None = None,
+        first_input: torch.Tensor | None = None,
     ) -> None:
-        backbone_input = torch.full(
-            (1, 1, self.flow_lm.ldim),
-            fill_value=float("NaN"),
-            device=next(iter(self.flow_lm.parameters())).device,
-            dtype=self.flow_lm.dtype,
-        )
+        backbone_input = first_input
+        if backbone_input is None:
+            backbone_input = torch.full(
+                (1, 1, self.flow_lm.ldim),
+                fill_value=float("NaN"),
+                device=next(iter(self.flow_lm.parameters())).device,
+                dtype=self.flow_lm.dtype,
+            )
         steps_times: list[float] = []
         eos_step = None
         for generation_step in range(max_gen_len):
@@ -1306,6 +1460,8 @@ class TTSModel(nn.Module):
                     break
 
                 # Add generated latent to queue for immediate decoding.
+                if latents_out is not None:
+                    latents_out.append(next_latent)
                 latents_queue.put(next_latent)
                 backbone_input = next_latent
             assert timer.elapsed_time_ms is not None

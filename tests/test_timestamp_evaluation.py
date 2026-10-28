@@ -111,9 +111,10 @@ def test_readme_patch_separates_cohorts_and_uses_shared_reference() -> None:
             }
         },
     )
-    assert "1500 | 1,000 |" in output
-    assert "500 | 100 |" in output
-    assert "Selection results, MAE is measured against CrisperWhisper 2.0 medium" in output
+    assert "| English 2026-09 | L1H2 | 1,000 |" in output
+    assert "| German | L3H6 | 2,610 | 0.000% | 2,610 | 64 ms |" in output
+    assert "Skip samples" not in output
+    assert "500 for MAE, which is measured against CrisperWhisper 2.0 medium" in output
     assert "Reference |" not in output
     assert "Large (legacy)" not in output
     assert update_readme(output, {}) == output
@@ -346,6 +347,7 @@ def test_capture_uses_production_orchestration_and_trims_eos_frames(
     from collections.abc import Generator as EventGenerator
 
     from pocket_tts_timestamped import TTSModel
+    from pocket_tts_timestamped.models.tts_model import _PreparedTextChunk
     from pocket_tts_timestamped.timestamps import AudioChunk, TimestampEvent, TimestampTextChunk
     from scripts.timestamp_eval import capture
     from scripts.timestamp_eval.capture import Generator, replay
@@ -373,9 +375,13 @@ def test_capture_uses_production_orchestration_and_trims_eos_frames(
         _generate_audio_with_timestamps_events = TTSModel._generate_audio_with_timestamps_events
 
         def _prepare_text_chunks(
-            self, text: str, max_tokens: int, frames_after_eos: int | None
-        ) -> list[tuple[str, int]]:
-            return [(chunk.text, 2) for chunk in chunks]
+            self,
+            text: str,
+            max_tokens: int | None,
+            frames_after_eos: int | None,
+            teacher_force_previous_chunk: bool = False,
+        ) -> list[_PreparedTextChunk]:
+            return [_PreparedTextChunk(chunk.text, 2) for chunk in chunks]
 
         def get_state_for_audio_prompt(self, voice: str) -> dict[str, Any]:
             return {}
@@ -391,6 +397,8 @@ def test_capture_uses_production_orchestration_and_trims_eos_frames(
             copy_state: bool,
             time_offset: float,
             stop: threading.Event | None = None,
+            latents_out: list[torch.Tensor] | None = None,
+            forced_latents: torch.Tensor | None = None,
         ) -> EventGenerator[TimestampEvent, None, float]:
             stops.append(stop)
             self._prepare_timestamp_text_chunk(timestamp_chunk)
