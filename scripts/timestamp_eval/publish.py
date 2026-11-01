@@ -48,38 +48,42 @@ def update_readme(text: str, updates: dict[str, dict[str, Any]]) -> str:
     if end < 0:
         raise ValueError("Cannot locate checkpoint table boundary")
     old_lines = text[start:end].splitlines()
+    names = [c.strip() for c in old_lines[0].strip("|").split("|")]
     records: dict[str, list[str]] = {}
     for line in old_lines[2:]:
         if not line.startswith("|"):
             continue
-        columns = [c.strip() for c in line.strip("|").split("|")]
-        key = columns[0].casefold().replace(" ", "_")
-        if len(columns) == 6:
-            name, heads, samples, words, skip, mae = columns
-            columns = [name, heads, samples, words, skip, samples, words, mae]
-        records[key] = columns[:8]
+        # Columns are read by header name so older table layouts can be migrated;
+        # legacy tables had a single "Words" column shared by both cohorts.
+        old = dict(zip(names, (c.strip() for c in line.strip("|").split("|"))))
+        skip = float(old["Skip rate"].rstrip("%"))
+        records[old["Checkpoint"].casefold().replace(" ", "_")] = [
+            old["Checkpoint"],
+            old.get("Heads", old.get("Head", "")),
+            old.get("Skip words", old.get("Words", "")),
+            f"{skip:.3f}%",
+            old.get("MAE words", old.get("Words", "")),
+            old["Start/end MAE"],
+        ]
     for model_id, row in updates.items():
-        result = row["result"]
         candidate = row["candidate"]
         records[model_id] = [
             display_name(model_id),
             head_label(candidate["heads"]),
-            str(result["skip_samples"]),
             f"{candidate['skip_words']:,}",
-            f"{100 * candidate['skip_rate']:.4f}%",
-            str(result["mae_samples"]),
+            f"{100 * candidate['skip_rate']:.3f}%",
             f"{candidate['mae_words']:,}",
             "n/a" if candidate["mae_ms"] is None else f"{candidate['mae_ms']:.2f} ms",
         ]
     header = [
-        "| Checkpoint | Heads | Skip samples | Skip words | Skip rate | MAE samples | MAE words | Start/end MAE |",
-        "|---|---|---:|---:|---:|---:|---:|---:|",
+        "| Checkpoint | Heads | Skip words | Skip rate | MAE words | Start/end MAE |",
+        "|---|---|---:|---:|---:|---:|",
     ]
     table = "\n".join(
         header + ["| " + " | ".join(columns) + " |" for _, columns in sorted(records.items())]
     )
     text = text[:start] + table + text[end:]
-    replacement = "All official Pocket TTS checkpoints are supported, but accuracy differs between them. Selection results, MAE is measured against CrisperWhisper 2.0 medium"
+    replacement = "All official Pocket TTS checkpoints are supported, but accuracy differs between them. Selection results over 1,500 samples for skip rate and 500 for MAE, which is measured against CrisperWhisper 2.0 medium"
     introduction = text.rfind("All official Pocket TTS checkpoints", 0, start)
     if introduction < 0:
         introduction = text.rfind("Evaluation results,", 0, start)

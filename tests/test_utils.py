@@ -39,9 +39,10 @@ def test_shipped_configs_sample_at_the_tuned_temperature(config_path: Path):
 @pytest.mark.parametrize(
     "language, revision",
     [
-        ("english", "a3055dcb533cf2ec90458008a01e7cef550bae2a"),
-        ("english_2026-09_2", "a3055dcb533cf2ec90458008a01e7cef550bae2a"),
-        ("french", "a3055dcb533cf2ec90458008a01e7cef550bae2a"),
+        ("english", "a7056f505a4a8ca72d8b5fb1440071d6f1a35739"),
+        ("english_2026-09_2", "a7056f505a4a8ca72d8b5fb1440071d6f1a35739"),
+        ("english_2026-10", "a7056f505a4a8ca72d8b5fb1440071d6f1a35739"),
+        ("french", "a7056f505a4a8ca72d8b5fb1440071d6f1a35739"),
     ],
 )
 def test_predefined_voices_match_checkpoint_revisions(language: str, revision: str):
@@ -56,12 +57,17 @@ def test_default_english_matches_calibrated_checkpoint():
     from pocket_tts_timestamped.utils.config import CONFIGS_DIR, load_config
 
     default = load_config(CONFIGS_DIR / f"{DEFAULT_LANGUAGE}.yaml").model_dump()
-    calibrated = load_config(CONFIGS_DIR / "english_2026-09_2.yaml").model_dump()
+    calibrated = load_config(CONFIGS_DIR / "english_2026-10.yaml").model_dump()
     assert calibrated["timestamp_heads"]
     for key in ("weights_path", "weights_path_without_voice_cloning"):
         assert default.pop(key) == calibrated.pop(key).replace(
-            "/languages/english_2026-09_2/", "/languages/english/"
+            "/languages/english_2026-10/", "/languages/english/"
         )
+    # Upstream reads the same tokenizer revision through the `english` directory.
+    tokenizers = [c["flow_lm"]["lookup_table"].pop("tokenizer_path") for c in (default, calibrated)]
+    assert tokenizers[0] == tokenizers[1].replace(
+        "/languages/english_2026-09/", "/languages/english/"
+    )
     assert default == calibrated
 
 

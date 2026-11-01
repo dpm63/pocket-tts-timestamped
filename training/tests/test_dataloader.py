@@ -9,7 +9,7 @@ import numpy.typing as npt
 import pytest
 import sphn
 
-from training.dataloader import DataLoader, load_entries
+from training.dataloader import DataLoader, Entry, load_entries
 
 SR = 24000
 
@@ -152,3 +152,15 @@ def test_startup_check_rejects_manifests_too_small_for_the_loaders(tmp_path: Pat
     check_manifest_sizes(args, world_size=1)  # 12 // 3 = 4 entries per shard, 2 x 2 needed
     with pytest.raises(SystemExit, match="num_bucket_batches"):
         check_manifest_sizes(args, world_size=2)  # 12 // 6 = 2 < 4
+
+
+def test_unaligned_last_word_keeps_the_end_of_the_file():
+    def entry(last_end: float | None) -> Entry:
+        words = [{"word": "in", "start": 0.1, "end": 0.3}, {"word": "1943.", "end": last_end}]
+        return Entry("a.wav", 2.0, "in 1943.", words)
+
+    assert DataLoader._last_word_end(entry(None)) is None
+    assert DataLoader._last_word_end(entry(1.2)) == 1.2
+    quote = {"word": "»", "end": None}  # unaligned punctuation is not spoken
+    words = [{"word": "oui", "start": 0.1, "end": 0.3}, quote]
+    assert DataLoader._last_word_end(Entry("a.wav", 2.0, "oui »", words)) == 0.3
