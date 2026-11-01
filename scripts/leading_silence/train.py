@@ -25,7 +25,8 @@ from pocket_tts_timestamped import TTSModel
 from pocket_tts_timestamped.models.flow_lm import FlowLMModel
 from scripts.leading_silence.onsets import frame_db, speech_start
 from scripts.leading_silence.sequences import (
-    KeyValues,
+    PrefixKV,
+    VoiceKeyValues,
     decode_latents,
     frames_after_eos,
     prefix_embeddings,
@@ -50,12 +51,14 @@ class Setting:
     eos_weight: float = 1.0
     full_pairs: int = 256
     full_max_frames: int = 200
+    # Rows per whole-sequence rollout batch; 24-layer rollouts to 200 frames need smaller ones.
+    full_batch: int = 32
 
 
 def default_setting(num_layers: int) -> Setting:
     """One setting per model size (adopted 2026-10-21); 6L also covers the 8-layer models."""
     if num_layers >= 24:
-        return Setting(rows=128, lr=0.1, steps=50)
+        return Setting(rows=128, lr=0.1, steps=50, full_batch=16)
     return Setting(rows=256, lr=0.3, steps=100)
 
 
@@ -66,7 +69,7 @@ class Rows:
     voice: list[int]
     text: list[str]
     k: list[int]
-    prefix_kv: list[KeyValues]
+    prefix_kv: list[PrefixKV]
     z_onset: torch.Tensor  # [N, Dz] the teacher's z at k
     eos_onset: torch.Tensor  # [N] its EOS logit there
     latents: torch.Tensor  # [N, m, C] the teacher's latents k..k+m-1
@@ -79,7 +82,7 @@ class FullRows:
     """Teacher rollouts from the onset to the end of the EOS tail, one length per row."""
 
     k: list[int]
-    prefix_kv: list[KeyValues]
+    prefix_kv: list[PrefixKV]
     latents: list[torch.Tensor]  # [L, C] each
     z_after: list[torch.Tensor]  # [L, Dz]
     eos_after: list[torch.Tensor]  # [L]
@@ -108,11 +111,12 @@ def make_rows(
     wanted: int,
     batch: int,
     seed: int,
+    store: VoiceKeyValues,
     log: Log = print,
 ) -> Rows:
     """Roll out `pairs` in order until `wanted` rows have an onset at frame 1 or later. Rows
     already speaking at frame 0 are left out: they are usually abrupt prompt continuations
-    and would teach the vectors to keep them."""
+    and would teach the vectors to keep them. Prefix keys/values are kept through `store`."""
     generator = torch.Generator(device=model.flow_lm.bos_emb.device).manual_seed(seed)
     voice, text, onsets, key_values, tensors = [], [], [], [], []
     seen = 0
@@ -126,7 +130,9 @@ def make_rows(
             voice.append(voice_index)
             text.append(row_text)
             onsets.append(k)
-            key_values.append(result.prefix_kv[row])
+            key_values.append(
+                store.split(voice_index, voices[voice_index].shape[0], result.prefix_kv[row])
+            )
             after = slice(k + 1, k + 1 + TRAJECTORY)
             tensors.append(
                 (
@@ -167,6 +173,7 @@ def make_full_rows(
     batch: int,
     max_frames: int,
     seed: int,
+    store: VoiceKeyValues,
     log: Log = print,
 ) -> FullRows:
     """Rollouts to past EOS. The tail is the text's frames-after-EOS after the first EOS past
@@ -177,7 +184,7 @@ def make_full_rows(
     for chunk, prefixes in _batches(model, voices, pairs, batch):
         result = rollout(model, prefixes, max_frames, generator)
         pcm = decode_latents(model, result.latent[:, :ROLLOUT_FRAMES]).cpu().numpy()
-        for row, (_, text) in enumerate(chunk):
+        for row, (voice_index, text) in enumerate(chunk):
             k = speech_start(frame_db(pcm[row]))
             fired = (result.eos_logit[row] > model.eos_threshold).nonzero()[:, 0]
             fired = fired[fired > k]
@@ -187,7 +194,9 @@ def make_full_rows(
             if end >= max_frames:
                 continue
             out.k.append(k)
-            out.prefix_kv.append(result.prefix_kv[row])
+            out.prefix_kv.append(
+                store.split(voice_index, voices[voice_index].shape[0], result.prefix_kv[row])
+            )
             out.latents.append(result.latent[row, k:end])
             out.z_after.append(result.z[row, k + 1 : end + 1])
             out.eos_after.append(result.eos_logit[row, k + 1 : end + 1])

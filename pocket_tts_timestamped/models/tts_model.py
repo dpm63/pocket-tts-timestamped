@@ -533,22 +533,19 @@ class TTSModel(nn.Module):
     def _new_mimi_state(
         self, sequence_length: int, continue_from: torch.Tensor | None = None
     ) -> tuple[ModelState, bool]:
-        """A decoder state for a new utterance, and whether it is warm.
+        """A decoder state for new audio, and whether it is warm.
 
-        With `continue_from` ([1, frames, ldim] normalized latents, the previous chunk's last
-        frames), a fresh state that has decoded them, so the audio follows on from theirs. With
-        leading-silence vectors it is a copy of a decoder that has decoded the warm-up latents,
-        built once per device and dtype. Otherwise a fresh state, whose first frame needs
-        fading in. `sequence_length` counts the new utterance's steps only.
+        `continue_from` ([1, frames, ldim]) is the end of the audio played before
+        (teacher_force_previous_chunk): a fresh decoder runs over it, so the new audio follows
+        on. Otherwise, with leading-silence vectors it is a copy of a decoder that has decoded
+        the warm-up latents, built once per device and dtype; without, a fresh state, whose
+        first frame needs fading in.
         """
         if continue_from is not None:
             steps_per_latent = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
-            state = init_states(
-                self.mimi,
-                batch_size=1,
-                sequence_length=sequence_length + continue_from.shape[1] * steps_per_latent,
-            )
-            self._warm_up_decoder(continue_from, state, steps_per_latent)
+            steps = continue_from.shape[1] * steps_per_latent
+            state = init_states(self.mimi, batch_size=1, sequence_length=sequence_length + steps)
+            self._warm_up_decoder(continue_from, state)
             return state, True
         warmup = self.flow_lm.leading_silence_warmup
         if warmup is None:
@@ -559,13 +556,18 @@ class TTSModel(nn.Module):
             steps_per_latent = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
             steps = warmup.shape[0] * steps_per_latent
             state = init_states(self.mimi, batch_size=1, sequence_length=steps)
-            with torch.no_grad():
-                self.mimi.decode_from_latent(
-                    warmup[None] * self.flow_lm.emb_std + self.flow_lm.emb_mean, state
-                )
-            increment_steps(self.mimi, state, increment=steps)
+            self._warm_up_decoder(warmup[None], state)
             self._warm_mimi_cache = (key, state)
         return copy.deepcopy(self._warm_mimi_cache[1]), True
+
+    @torch.no_grad
+    def _warm_up_decoder(self, latents: torch.Tensor, mimi_state: ModelState) -> None:
+        """Decode normalized `latents` ([1, frames, ldim]) into `mimi_state`, dropping the audio."""
+        self.mimi.decode_from_latent(
+            latents * self.flow_lm.emb_std + self.flow_lm.emb_mean, mimi_state
+        )
+        steps_per_latent = int(self.mimi.encoder_frame_rate / self.mimi.frame_rate)
+        increment_steps(self.mimi, mimi_state, increment=steps_per_latent * latents.shape[1])
 
     def _run_flow_lm_and_increment_step(
         self,
@@ -683,21 +685,6 @@ class TTSModel(nn.Module):
             "at https://github.com/kyutai-labs/pocket-tts/issues"
         )
 
-    def _warm_up_decoder(
-        self, warmup_latents: torch.Tensor, mimi_state: ModelState, mimi_steps_per_latent: int
-    ) -> None:
-        """Continue the previous chunk's audio from its last frames.
-
-        The decoder runs over those frames with their audio dropped, so the new chunk's audio
-        follows on without a fresh-state transient.
-        """
-        self.mimi.decode_from_latent(
-            warmup_latents * self.flow_lm.emb_std + self.flow_lm.emb_mean, mimi_state
-        )
-        increment_steps(
-            self.mimi, mimi_state, increment=mimi_steps_per_latent * warmup_latents.shape[1]
-        )
-
     @torch.no_grad
     def _decode_audio_worker(
         self,
@@ -713,7 +700,8 @@ class TTSModel(nn.Module):
             mimi_state, warm = self._new_mimi_state(mimi_sequence_length, warmup_latents)
             # A fresh Mimi decoder state puts a small step (about -41 dBFS) in its first samples, heard
             # as a click at the start of every chunk: fade the first 5 ms in. (The longer burst some
-            # voices produced came from prompts ending on speech, handled by end_on_pause.)
+            # voices produced came from prompts ending on speech, handled by end_on_pause.) A warm
+            # decoder (leading-silence vectors, or continuing the previous chunk) needs no fade.
             first_batch = not warm
             for batch in _iter_latent_batches(latents_queue, self.max_decoder_frames_per_call):
                 latents = []
@@ -1177,7 +1165,7 @@ class TTSModel(nn.Module):
         audio_end = time_offset
         try:
             with display_execution_time("Prompting text"):
-                # Teacher forcing replays the previous chunk's frames after the text.
+                # Teacher forcing replays the previous chunk's frames after BOS and the text.
                 history_from = None if forced_latents is None else 0
                 session.set_text(window, history_from=history_from, reserve_frames=max_gen_len)
             generation_thread = threading.Thread(
@@ -1218,8 +1206,10 @@ class TTSModel(nn.Module):
         latents_out: list[torch.Tensor] | None = None,
     ) -> None:
         """Generate one text's frames into `frames_queue`, ending `frames_after_eos` after EOS.
+        The latents of the queued frames are also appended to `latents_out`.
 
-        `latents_out` collects the latents of the frames queued, for teacher forcing.
+        EOS is gated as in `_autoregressive_generation`, on frames generated since `set_text`,
+        so the audio is the same as ordinary generation's when it replays a previous chunk.
         """
 
         def stopped() -> bool:
@@ -1235,8 +1225,6 @@ class TTSModel(nn.Module):
                     frame = session.generate_frame()
                     if stopped():
                         break
-                    # As in ordinary generation, EOS waits for new frames: replayed teacher-forced
-                    # frames are the previous chunk's audio, not this one's.
                     if (
                         frame.eos
                         and eos_step is None
@@ -1307,6 +1295,7 @@ class TTSModel(nn.Module):
         warmup = None
         if forced_latents is not None:
             warmup = forced_latents[:, -self._DECODER_WARMUP_FRAMES :]
+        # _new_mimi_state makes room for the warm-up frames.
         mimi_sequence_length = max_gen_len * mimi_steps_per_latent
 
         # Set up multithreaded generation and decoding

@@ -1,0 +1,3 @@
+pyyaml>=6
+# Silero VAD (speech onsets) and Whisper (first word, WER) for the checks.
+faster-whisper==1.2.0

@@ -29,6 +29,8 @@ timestamp_heads:
 - layer: 17
   head: 11
 
+leading_silence_vectors: leading_silence/french_24l.safetensors
+
 flow_lm:
   insert_bos_before_voice: true
   dtype: float32

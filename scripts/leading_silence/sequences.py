@@ -160,6 +160,51 @@ def row_key_values(
     return out
 
 
+@dataclass(frozen=True)
+class PrefixKV:
+    """A row's prefix keys/values at unpadded positions, in two parts: its voice prompt's
+    ([BOS_BEFORE_VOICE] and VOICE), the same tensors for every row with that voice, and its
+    text's. Each part maps module -> [2, length, H, D]."""
+
+    voice: KeyValues
+    text: KeyValues
+
+    @property
+    def length(self) -> int:
+        return sum(next(iter(part.values())).shape[1] for part in (self.voice, self.text))
+
+
+class VoiceKeyValues:
+    """Splits rows' prefix keys/values into `PrefixKV`, keeping each voice's part once.
+
+    The voice prompt comes before the text, so its keys/values don't depend on the text: on a
+    24-layer model they are most of each row's 30 MB, and rows sharing them is what keeps
+    training within a runner's memory. A row's own voice part (computed in another batch,
+    with other padding) differs from the shared one only by float rounding.
+    """
+
+    def __init__(self, model: TTSModel) -> None:
+        self._before = 1 if model.flow_lm.insert_bos_before_voice else 0
+        self._voices: dict[int, KeyValues] = {}
+
+    def split(self, voice: int, voice_frames: int, key_values: KeyValues) -> PrefixKV:
+        """`key_values` of a row whose voice prompt (index `voice`) has `voice_frames`."""
+        end = self._before + voice_frames
+        shared = self._voices.get(voice)
+        if shared is None:
+            shared = {name: kv[:, :end].clone() for name, kv in key_values.items()}
+            self._voices[voice] = shared
+        return PrefixKV(shared, {name: kv[:, end:].clone() for name, kv in key_values.items()})
+
+    @property
+    def voices(self) -> int:
+        return len(self._voices)
+
+    @property
+    def nbytes(self) -> int:
+        return sum(kv.nbytes for part in self._voices.values() for kv in part.values())
+
+
 @dataclass
 class Rollout:
     prefix_kv: list[KeyValues]  # per row
@@ -209,13 +254,13 @@ def decode_latents(model: TTSModel, latents: torch.Tensor) -> torch.Tensor:
 
 
 def student_forward(
-    model: TTSModel, steer: Steer, key_values: list[KeyValues], after: torch.Tensor
+    model: TTSModel, steer: Steer, key_values: list[PrefixKV], after: torch.Tensor
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """z at BOS [B, Dz] and after each teacher-forced latent of `after` [B, m, C] ([B, m, Dz]),
     over the rows' cached prefix keys/values. The steer must be attached."""
     flow_lm = model.flow_lm
     device = flow_lm.bos_emb.device
-    lengths = [next(iter(kv.values())).shape[1] for kv in key_values]
+    lengths = [kv.length for kv in key_values]
     batch, width = len(key_values), max(lengths)
     pad = torch.tensor([width - length for length in lengths], device=device)
     state = _streaming_state(model, batch, width, 1 + after.shape[1], pad)
@@ -224,7 +269,10 @@ def student_forward(
             cache = module_state["cache"]
             cache[:, :, :width] = 0.0  # padded slots are masked; keep them finite
             for row, kv in enumerate(key_values):
-                cache[:, row, width - lengths[row] : width] = kv[name]
+                start = width - lengths[row]
+                middle = start + kv.voice[name].shape[1]
+                cache[:, row, start:middle] = kv.voice[name]
+                cache[:, row, middle:width] = kv.text[name]
             cache[0, :, :width] = _shift_keys(model, cache[0, :, :width], pad)
     increment_steps(flow_lm, state, width)
     bos = flow_lm.input_linear(flow_lm.bos_emb).view(1, 1, -1).expand(batch, 1, -1)

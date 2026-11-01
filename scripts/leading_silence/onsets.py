@@ -62,6 +62,35 @@ def speech_onset(db: NDArray[np.float64]) -> int:
     return -1
 
 
+VAD_SAMPLE_RATE, VAD_WINDOW = 16000, 512  # Silero VAD: 32 ms windows at 16 kHz
+VAD_THRESHOLD = 0.5
+VAD_MIN_WINDOWS = 3  # speech must hold this many windows in a row (96 ms)
+# The VAD misses speech that ends the clip, so onset trials run this much past loud speech.
+VAD_TAIL_FRAMES = 4
+
+
+def vad_onset(pcm: NDArray[Any], sample_rate: int) -> int:
+    """For evaluation: the 80 ms frame where the VAD's first speech run starts; -1 if none.
+
+    Unlike the loudness rules it counts quiet speech from its first window and ignores breaths
+    and noise, whatever their level; loudness made quiet voices look late (bos_shortcut
+    handoff, "Measure speech onset with the VAD"). It lags 1-3 frames on unvoiced starts
+    ("Stick", "Say"). The model is the Silero VAD that faster-whisper bundles.
+    """
+    from faster_whisper.vad import (
+        get_vad_model,  # ty: ignore[unresolved-import]  -- requirements.txt
+    )
+    from scipy.signal import resample_poly
+
+    x = resample_poly(pcm.astype(np.float32), VAD_SAMPLE_RATE, sample_rate).astype(np.float32)
+    x = np.pad(x, (0, -len(x) % VAD_WINDOW))
+    speech = get_vad_model()(x[None])[0] >= VAD_THRESHOLD
+    for index in range(len(speech) - VAD_MIN_WINDOWS + 1):
+        if speech[index : index + VAD_MIN_WINDOWS].all():
+            return int(index * VAD_WINDOW * sample_rate // VAD_SAMPLE_RATE // FRAME_SAMPLES)
+    return -1
+
+
 def head_db(pcm: NDArray[Any], frame: int, sample_rate: int) -> float:
     """RMS dB of the first HEAD_MS of `frame`: natural onsets start near-silent and ramp up."""
     start = frame * FRAME_SAMPLES

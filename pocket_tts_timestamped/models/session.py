@@ -95,12 +95,10 @@ class Session:
         history: torch.Tensor | None = None,
     ):
         """`decoder_frames` sizes Mimi caches that cannot grow; `copy_state=False` generates in
-        `voice_state` itself. Both exist for `TTSModel`'s own generation.
-
-        `history` ([1, frames, ldim] normalized latents) is audio already played that this
-        session continues, such as the previous chunk's with teacher forcing: the frames start
-        out kept and decoded, so `set_text(history_from=0)` replays them, and the decoder
-        follows on from their last ones."""
+        `voice_state` itself; `history` ([1, frames, ldim]) is audio played before this
+        session, which becomes its first (already decoded) latents, and the decoder starts
+        warmed up on its last frames: `set_text(window, history_from=0)` then continues it.
+        All exist for `TTSModel`'s own generation (teacher_force_previous_chunk)."""
         self.model = model
         self._flow_state = copy.deepcopy(voice_state) if copy_state else voice_state
         # set_text rewinds to here: positions are restored, and cache entries past them are
@@ -137,8 +135,7 @@ class Session:
         self._time_offset = time_offset
         self._decoded_samples = 0
         self._decoded_frames = len(self.latents)
-        # A fresh decoder clicks on its first samples; a warm one (leading-silence vectors or
-        # history) doesn't.
+        # A fresh decoder clicks on its first samples; a warm one (leading-silence vectors) doesn't.
         self._fade_first_decode = not warm
         self._alignment: WordAlignment | None = None
         self._aligned_window: TextWindow | None = None
