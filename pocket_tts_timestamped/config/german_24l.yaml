@@ -23,6 +23,8 @@ replace_characters:
   '–': ','
   '—': ','
 
+leading_silence_vectors: leading_silence/german_24l.safetensors
+
 flow_lm:
   insert_bos_before_voice: true
   dtype: float32
