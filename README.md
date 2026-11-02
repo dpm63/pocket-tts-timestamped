@@ -544,6 +544,40 @@ uvx pocket-tts-timestamped generate \
 ```
 </details>
 
+<details>
+<summary><a href="https://huggingface.co/meeeetxd/pocket-tts-gujarati">Pocket TTS Gujarati</a> by <a href="https://huggingface.co/meeeetxd">Meet Patel</a>, 6 layers</summary>
+
+Gujarati language. Use an Indian voice for a better Indian accent.
+
+```bash
+uvx pocket-tts-timestamped generate \
+  --config hf://meeeetxd/pocket-tts-gujarati/config.yaml \
+  --voice my_voice.wav \
+  --text "નમસ્તે, તમે કેમ છો?" \
+  --output-path out.wav
+```
+</details>
+
+
+<details>
+<summary><a href="https://samuel.vvolhejn.com/">Samuel TTS using Pink Trombone</a> by @vvolhejn</summary>
+
+A model based on Pocket TTS that reads English text using [Pink Trombone](https://dood.al/pinktrombone/), a silly mouth simulator.
+Cannot be used directly with `uvx pocket-tts`, head over to [the repo](https://github.com/vvolhejn/samuel) to use it.
+
+</details>
+
+<details>
+<summary><a href="https://huggingface.co/abdazizsall/wolof-pocket-tts">Pocket TTS Wolof</a> by <a href="https://huggingface.co/abdazizsall">@abdazizsall</a>, 6 layers</summary>
+
+```bash
+uvx pocket-tts-timestamped generate \
+  --config hf://abdazizsall/wolof-pocket-tts/wolof.yaml@ad1de52ff6321c119d9160c738c41ddc32c1aac2 \
+  --voice hf://abdazizsall/wolof-pocket-tts/voices/alffa_10.wav@ad1de52ff6321c119d9160c738c41ddc32c1aac2 \
+  --text "Salaam aleekum. Lii mooy jumtukaayu wax ci làkku wolof."
+```
+The repository is gated: accept the terms on the model page and log in with `hf auth login` first.
+</details>
 
 Want your model here? Head to the [training Readme](https://github.com/kyutai-labs/pocket-tts/blob/main/training/README.md) to get started!
 
