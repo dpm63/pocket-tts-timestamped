@@ -92,16 +92,7 @@ Supports Python 3.10, 3.11, 3.12, 3.13 and 3.14. Requires PyTorch 2.5+. Does not
 [🔊 Demo](https://kyutai.org/pocket-tts) | 
 [🐱‍💻GitHub Repository](https://github.com/kyutai-labs/pocket-tts) | 
 [🤗 Hugging Face Model Card](https://huggingface.co/kyutai/pocket-tts) | 
-[⚙️ Tech report](https://kyutai.org/blog/2026-01-13-pocket-tts) |
-[📄 Paper](https://arxiv.org/abs/2509.06926) | 
-[📚 Documentation](https://kyutai-labs.github.io/pocket-tts/)
-
-> [!NOTE]
-> **New (October 2026):** Small English models with 18.2M, 6.9M and 1.9M parameters (decoder included), up to 25x faster than real time on one CPU thread. Try them with `--language english_18m_2026-10`, `english_7m_2026-10` or `english_2m_2026-10`; see the [blog post](https://kyutai.org/blog/2026-10-20-pocket-tts-small) for how they were made.
->
-> **New (August 2026):** We've released the training code! Check out [`training/`](https://github.com/kyutai-labs/pocket-tts/blob/main/training/README.md) to start training your own models.
-> Open a PR to add your model to the [Models trained by the community](#models-trained-by-the-community) section.
-
+[📄 Paper](https://arxiv.org/abs/2509.06926)
 
 ## Main takeaways
 * Runs on CPU
@@ -117,6 +108,11 @@ Supports Python 3.10, 3.11, 3.12, 3.13 and 3.14. Requires PyTorch 2.5+. Does not
 * [Can run on client-side in the browser](#in-browser-implementations)
 
 Additional languages may be added in the future.
+
+## Tech reports
+* [Pocket TTS: a high-quality TTS with voice cloning that runs on CPU](https://kyutai.org/blog/2026-01-13-pocket-tts) (January 2026)
+* [Building a Pocket TTS with a drifting objective](https://kyutai.org/blog/2026-09-28-pocket-tts-drifting) (September 2026)
+* [The tiny TTS was actually 10x too big](https://kyutai.org/blog/2026-10-20-pocket-tts-small) (October 2026)
 
 ## Trying it from the website, without installing anything
 
@@ -577,6 +573,25 @@ uvx pocket-tts-timestamped generate \
   --text "Salaam aleekum. Lii mooy jumtukaayu wax ci làkku wolof."
 ```
 The repository is gated: accept the terms on the model page and log in with `hf auth login` first.
+</details>
+
+<details>
+<summary><a href="https://huggingface.co/AfriSpeech/africa-tts">Africa TTS</a> by <a href="https://huggingface.co/AfriSpeech">AfriSpeech</a>, 6 layers</summary>
+
+92 African languages and English in one model, with a default voice per language, 2.4x faster than
+real time on 4 CPU cores. The model reads IPA, not spelling: convert text with
+[africa-g2p](https://github.com/AfriSpeech/africa-g2p) (English: espeak-ng), or use the
+[africa-tts package](https://github.com/AfriSpeech/africa-tts), which does it for you.
+[Live demo](https://huggingface.co/spaces/AfriSpeech/africa-tts-demo) ·
+[samples in 53 languages](https://huggingface.co/spaces/AfriSpeech/africa-tts-samples).
+
+```bash
+# Twi: "Welcome! My name is Kofi, and I am from Kumasi."
+uvx pocket-tts-timestamped generate \
+  --config hf://AfriSpeech/africa-tts/config.yaml@c5229a271b4362bf7c9667eaf8249e5e40454d8e \
+  --voice hf://AfriSpeech/africa-tts/voices/twi.wav@c5229a271b4362bf7c9667eaf8249e5e40454d8e \
+  --text "akʷaaba! jɛfɾɛ me kofi, na mefiɾi kumase."
+```
 </details>
 
 Want your model here? Head to the [training Readme](https://github.com/kyutai-labs/pocket-tts/blob/main/training/README.md) to get started!

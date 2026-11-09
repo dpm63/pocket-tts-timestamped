@@ -308,3 +308,152 @@ def test_replace_characters_rewrites_unseen_characters_before_capitalizing():
     # Empty by default: shipped configs that don't set it are unchanged.
     got, _ = prepare_text_prompt('"Yes," she said.', False, False)
     assert got == '"Yes," she said.'
+
+
+def _split(tokenizer: Tokenizer, text: str, max_tokens: int) -> list[str]:
+    return split_into_best_sentences(
+        tokenizer, text, max_tokens, pad_with_spaces_for_short_inputs=False, remove_semicolons=False
+    )
+
+
+REIMBURSEMENT = (
+    "The decision will be processed by the S C H E L L I N G department and the result "
+    "will be a reimbursement of $822.95, which should be reflected in your account within "
+    "a few business days."
+)
+DECIMAL_COMMA = (
+    "Le dossier a été transmis au service comptable de la région et le remboursement prévu "
+    "sera de 822,95 €, ce qui devrait apparaître sur votre compte dans quelques jours."
+)
+SERVICE_FEE = (
+    "Sure, I can walk you through the procedure, the solution we typically offer includes "
+    "an onsite technician visit, and the standard service fee is $286.50, our team "
+    "coordinates with the IRM and CPAM divisions to ensure compliance."
+)
+
+
+@pytest.mark.parametrize(
+    "text, max_tokens, number",
+    [
+        (REIMBURSEMENT, 50, "$822.95,"),
+        (SERVICE_FEE, 50, "$286.50,"),
+        (DECIMAL_COMMA, 50, "822,95 €,"),
+        (
+            "The value is 3.14. The next value is larger. And the third one is the largest.",
+            10,
+            "3.14.",
+        ),
+    ],
+)
+def test_no_chunk_ends_on_a_decimal_number(
+    tokenizer: Tokenizer, text: str, max_tokens: int, number: str
+):
+    """A chunk ending on "$822.95," would get a terminal period appended, and the model then takes
+    the decimal point for the sentence end and drops the decimals: keep it with what follows."""
+    chunks = _split(tokenizer, text, max_tokens)
+    assert any(number in chunk and not chunk.endswith(number) for chunk in chunks), chunks
+    assert " ".join(chunks).split() == text.split()
+
+
+def test_splits_without_decimal_numbers_are_unchanged(tokenizer: Tokenizer):
+    assert _split(tokenizer, "First sentence here. Second sentence here. Third one.", 10) == [
+        "First sentence here.",
+        "Second sentence here.",
+        "Third one.",
+    ]
+    text = (
+        "It was the best of times, it was the worst of times, it was the age of wisdom, it was the "
+        "age of foolishness, it was the epoch of belief, it was the epoch of incredulity, it was "
+        "the season of Light, it was the season of Darkness"
+    )
+    assert _split(tokenizer, text, 20) == [
+        "It was the best of times, it was the worst of times,",
+        "it was the age of wisdom, it was the age of foolishness,",
+        "it was the epoch of belief,",
+        "it was the epoch of incredulity,",
+        "it was the season of Light, it was the season of Darkness.",
+    ]
+    # Integers and sentence-final years are not decimal numbers.
+    assert _split(tokenizer, "We met in 2008. It was raining. The bus was late.", 8) == [
+        "We met in 2008.",
+        "It was raining.",
+        "The bus was late.",
+    ]
+
+
+def test_commas_between_digits_do_not_split(tokenizer: Tokenizer):
+    """Splitting a long sentence on commas must not cut "1,994.42" or "3,5" (decimal comma)."""
+    text = (
+        "The technician reported that the centrifuge needs 1,994.42 kW and an extra 1,874 kW to "
+        "function on 06-30-2028 at 14 Lab Court, E8 5TT Manchester, MU9S 3VC, le taux est de 3,5 %"
+    )
+    chunks = _split(tokenizer, text, 20)
+    assert len(chunks) > 1
+    for number in ["1,994.42", "1,874", "3,5"]:
+        assert any(number in chunk for chunk in chunks), (number, chunks)
+
+
+URLS = (
+    "You can view the details of your consultation and of the invoice at www.actu.com/tech, "
+    "or send an email to liam_jones@icloud.com, and we will reply before 4 p.m. on Monday."
+)
+TITLES = (
+    "Hi, I'm calling to follow up on your latest lab results, the ones we discussed with Dr. "
+    "Miller and Prof. Chen, the specialists in cardiology, and the general practitioner."
+)
+
+
+@pytest.mark.parametrize(
+    "text, kept",
+    [
+        (URLS, ["www.actu.com/tech,", "liam_jones@icloud.com,", "p.m."]),
+        (TITLES, ["Dr. Miller", "Prof. Chen"]),
+    ],
+)
+def test_no_cut_inside_words_or_after_titles(tokenizer: Tokenizer, text: str, kept: list[str]):
+    """A period followed by a letter (URLs, emails, "p.m.") or ending a title ("Dr.") is not a
+    sentence end: no chunk is cut there and no space is inserted ("icloud. com")."""
+    chunks = _split(tokenizer, text, 20)
+    assert len(chunks) > 1
+    for words in kept:
+        assert any(words in chunk for chunk in chunks), (words, chunks)
+    assert " ".join(chunks).split() == text.split()
+
+
+def test_sentence_ending_on_an_abbreviation_still_splits(tokenizer: Tokenizer):
+    assert _split(tokenizer, "We live in the U.S. It is big. Very big.", 8) == [
+        "We live in the U.S.",
+        "It is big. Very big.",
+    ]
+
+
+@pytest.mark.parametrize(
+    "text, max_tokens, expected",
+    [
+        ("He said “Stop.”", 50, ["He said “Stop.”"]),
+        ("He said “Stop.” Then he left.", 8, ["He said “Stop.”", "Then he left."]),
+        (
+            "A long first sentence goes right here. He said “Stop.”",
+            9,
+            ["A long first sentence goes right here.", "He said “Stop.”"],
+        ),
+        ("He said 'Stop.' Then he left.", 8, ["He said 'Stop.'", "Then he left."]),
+        ("(quietly.) Okay then.", 4, ["(quietly.)", "Okay then."]),
+        ("He said (“Stop.”) Then he left.", 8, ["He said (“Stop.”)", "Then he left."]),
+        (
+            "“Stop,” he said, and then he left the room very quietly.",
+            8,
+            ["“Stop,”", "he said,", "and then he left the room very quietly."],
+        ),
+    ],
+)
+def test_closing_quotes_and_brackets_stay_with_their_sentence(
+    tokenizer: Tokenizer, text: str, max_tokens: int, expected: list[str]
+):
+    """A closer right after the punctuation ends that sentence or clause: it must not start the
+    next chunk, become a chunk of its own, or get a space inserted before it ("Stop. ”")."""
+    assert _split(tokenizer, text, max_tokens) == expected
+
+
+def test_opening_quote_of_the_next_sentence_is_not_moved(tokenizer: Tokenizer):
+    assert _split(tokenizer, "He left. “Hi.” Bye.", 4) == ["He left.", "“Hi.”", "Bye."]

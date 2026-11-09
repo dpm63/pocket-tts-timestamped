@@ -54,6 +54,9 @@ def prepare_text_prompt(
 
 
 _TERMINAL_PUNCTUATION = ".!?\u2026"
+# A segment ending on a decimal number, as in "... a fee of $822.95,", "... is 3.14." or, with a
+# decimal comma, "... de 822,95 €,"
+_ENDS_WITH_DECIMAL_NUMBER = re.compile(r"\d[.,]\d+\W*$")
 _WEAK_PUNCTUATION = ",;:-\u2013\u2014"
 _CLOSERS = "\"'\u201d\u2019)]\u00bb"
 
@@ -79,32 +82,65 @@ def _ensure_terminal_punctuation(text: str) -> str:
     return text + "."
 
 
-def _is_decimal_period_boundary(
+# Abbreviations that always precede a name or an example, never end a sentence.
+_TITLES = {"Mr.", "Mrs.", "Ms.", "Dr.", "Prof.", "Rev.", "vs.", "e.g.", "i.e."}
+
+
+def _is_inner_punctuation(
     list_of_tokens: list[int], segment_start_idx: int, tokenizer: Tokenizer
 ) -> bool:
-    """Return True when segment_start_idx begins right after a decimal period, as in "3.14".
+    """Return True when the punctuation right before segment_start_idx does not end a sentence or
+    clause: it is followed by a letter or digit without a space ("3.14", "3,14" with a decimal
+    comma, "1,000", "4 p.m.", "www.kyutai.org", "jo@icloud.com"), or it ends a title that
+    precedes a name ("Dr. Miller", "e.g. this").
 
     Only the tokens next to the boundary are decoded, so checking every sentence boundary
     stays linear in the text length. Decoding the period together with the next token keeps
     the space between them: in "I counted to 3. 14 people were there." the period ends a
     sentence.
     """
-    before = tokenizer.decode(list_of_tokens[max(0, segment_start_idx - 2) : segment_start_idx])
     after = tokenizer.decode(list_of_tokens[segment_start_idx - 1 : segment_start_idx + 1])
-    return (
-        len(before) >= 2
-        and before[-1] == "."
-        and before[-2].isdigit()
-        and len(after) >= 2
-        and after[1].isdigit()
-    )
+    if len(after) >= 2 and after[1].isalnum():
+        return True
+    window_start = max(0, segment_start_idx - 6)
+    words = tokenizer.decode(list_of_tokens[window_start:segment_start_idx]).split()
+    # The first word of the window may be cut, unless the window starts the text.
+    return bool(words) and words[-1] in _TITLES and (len(words) > 1 or window_start == 0)
+
+
+# A closing quote can span several byte tokens; bound the lookahead so the check stays linear.
+_MAX_CLOSER_TOKENS = 8
+# Characters allowed after the punctuation while skipping closers: U+FFFD is an incomplete closer.
+_CLOSERS_OR_PARTIAL = _CLOSERS + "\ufffd"
+
+
+def _skip_closers(list_of_tokens: list[int], segment_start_idx: int, tokenizer: Tokenizer) -> int:
+    """Return where the segment starting at segment_start_idx should really start: after the
+    closing quotes and brackets that directly follow the punctuation, as in "“Stop.”" or
+    "(quietly.)", so that they stay with their sentence instead of starting the next segment.
+
+    A closer like the curly quote is made of byte tokens that decode to U+FFFD on their own, so
+    the tokens are decoded together with the punctuation and the start only moves past complete
+    closers. A closer preceded by a space opens the next sentence and is left alone.
+    """
+    punctuation = tokenizer.decode(list_of_tokens[segment_start_idx - 1 : segment_start_idx])
+    start = segment_start_idx
+    stop = min(len(list_of_tokens), segment_start_idx + _MAX_CLOSER_TOKENS)
+    for end in range(segment_start_idx + 1, stop + 1):
+        window = tokenizer.decode(list_of_tokens[segment_start_idx - 1 : end])
+        after = window[len(punctuation) :]
+        if not after or any(c not in _CLOSERS_OR_PARTIAL for c in after):
+            break
+        if "\ufffd" not in after:
+            start = end
+    return start
 
 
 def _find_boundary_indices(
     list_of_tokens: list[int],
     boundary_tokens: list[int],
     tokenizer: Tokenizer | None = None,
-    skip_decimal_periods: bool = False,
+    skip_inner_punctuation: bool = False,
 ) -> list[int]:
     """Find token indices where text should be split based on boundary tokens.
 
@@ -121,13 +157,15 @@ def _find_boundary_indices(
         else:
             if previous_was_boundary:
                 if (
-                    skip_decimal_periods
+                    skip_inner_punctuation
                     and tokenizer is not None
-                    and _is_decimal_period_boundary(list_of_tokens, idx, tokenizer)
+                    and _is_inner_punctuation(list_of_tokens, idx, tokenizer)
                 ):
                     previous_was_boundary = False
                     continue
-                indices.append(idx)
+                start = idx if tokenizer is None else _skip_closers(list_of_tokens, idx, tokenizer)
+                if start < len(list_of_tokens):
+                    indices.append(start)
             previous_was_boundary = False
     indices.append(len(list_of_tokens))
     return indices
@@ -170,7 +208,7 @@ def split_into_best_sentences(
 
     _, *end_of_sentence_tokens = tokenizer(".!...?")[0].tolist()
     sentence_boundaries = _find_boundary_indices(
-        list_of_tokens, end_of_sentence_tokens, tokenizer, skip_decimal_periods=True
+        list_of_tokens, end_of_sentence_tokens, tokenizer, skip_inner_punctuation=True
     )
     nb_tokens_and_sentences = _segments_from_boundaries(
         list_of_tokens, sentence_boundaries, tokenizer
@@ -184,12 +222,26 @@ def split_into_best_sentences(
             refined_segments.append((nb_tokens, text))
         else:
             sub_tokens = tokenizer(text.strip())[0].tolist()
-            sub_boundaries = _find_boundary_indices(sub_tokens, fallback_tokens)
+            sub_boundaries = _find_boundary_indices(
+                sub_tokens, fallback_tokens, tokenizer, skip_inner_punctuation=True
+            )
             sub_segments = _segments_from_boundaries(sub_tokens, sub_boundaries, tokenizer)
             if len(sub_segments) > 1:
                 refined_segments.extend(sub_segments)
             else:
                 refined_segments.append((nb_tokens, text))
+
+    # Never end a chunk on a decimal number: "... $822.95," would become the chunk "... $822.95."
+    # and the model takes the decimal point for the sentence end, stopping before the decimals.
+    # Such a segment stays with the next one.
+    glued_segments: list[tuple[int, str]] = []
+    for nb_tokens, text in refined_segments:
+        if glued_segments and _ENDS_WITH_DECIMAL_NUMBER.search(glued_segments[-1][1]):
+            prev_tokens, prev_text = glued_segments[-1]
+            glued_segments[-1] = (prev_tokens + nb_tokens, prev_text.rstrip() + " " + text.strip())
+        else:
+            glued_segments.append((nb_tokens, text))
+    refined_segments = glued_segments
 
     max_nb_tokens_in_a_chunk = max_tokens
     chunks = []
