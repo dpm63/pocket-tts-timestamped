@@ -152,9 +152,9 @@ class StreamingTransformer(nn.Module):
         attention_capture: SelectedAttentionCapture | None = None,
     ) -> torch.Tensor:
         attn_mask = None
-        if model_state is None:
+        if model_state is None and self.context is not None:
             # Stateless (training) path: one shared mask for all layers, built
-            # outside any compiled region.
+            # outside any compiled region. Without a context window the layers use is_causal.
             attn_mask = _cached_causal_mask(x.shape[1], self.context, x.device)
         for layer_index, layer in enumerate(self.layers):
             x = layer(
