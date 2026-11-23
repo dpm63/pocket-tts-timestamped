@@ -1,0 +1,28 @@
+{
+  "upstreamRelease": "4.0.1",
+  "upstreamCommit": "a922b912dfa366975294afb568d815b305acde5d",
+  "adaptations": [
+    "embed stable configs locally",
+    "renamed fork Python static asset path"
+  ],
+  "wordTimestamps": false,
+  "importedRustFiles": {
+    "rust/.cargo/config.toml": "1eb759cbe353749acbaa1ac4a34879acf6b0188b3fff95a2a3924f2c7eb2d227",
+    "rust/Cargo.lock": "3f2c5396eaaad4c64258ae724e012fdaa0c7b3e71165bcf0ef2c6b0641d18d27",
+    "rust/Cargo.toml": "c824c5c52b269d24fe7f404d2359be47c8b08c72e2857a0591762f7cd8e3970e",
+    "rust/README.md": "c753f0a9ba23b639278c21446dfbbf3ecd3f4e3fdd1b4c8f326d2e8efd04202e",
+    "rust/build.rs": "96f7e47c847e0f7e9d972d82be50c4898c709534a59bd43b6612082194bf1dce",
+    "rust/src/audio.rs": "22cb27da0f0b816ee0e868e2427099505dccf4d48c848e8c9e6011d3093dafb0",
+    "rust/src/config.rs": "9b952e0336565032ebee6ad6d59ca725b2931fe575e34ac5c1c551644ed3534a",
+    "rust/src/defaults.rs": "d049465d04e32f02f0c1043f0c1f93a663beace96abe855e31004c3067245667",
+    "rust/src/download.rs": "d1f48856cc3c3c17bc4f2fc1c5a402135eb2b8012fb3b7857634816e976bc655",
+    "rust/src/logging.rs": "56263f132f7aa944401ca3e0dc97fb06f18e38a024bc2a250e5542d8b11011b5",
+    "rust/src/main.rs": "8b882fa1de70a7656711f6398c329ec45fbf72a5c0b1490e012a8a03dd8f13a5",
+    "rust/src/model.rs": "13744add16efe18dddcc550876a895e4ab95d1f7ebcfe9287a5192c1b0e11a88",
+    "rust/src/rng.rs": "93795585b2f2fe06db706b3eae181798f7aca29917deeaa3fdb54dae2909f6a3",
+    "rust/src/server.rs": "a17050a5ed2fc4ac69497d3fe74f7f60f0ac3ddc7dcbcc9e932ab1ee6e9bc68b",
+    "rust/src/text.rs": "dbdbb2d070b280109b0ea45c0b39ef8b90d66df3f387e71ab40db940a1ab0172",
+    "rust/src/tokenizer.rs": "6a773be3cdd1a1b25e2de728d844f662dfbc1975767fe59b094c6a5bcbef5103",
+    "rust/src/weights.rs": "65d1488fd4b2cccccd5a52a7bca6a079145d999594e50542b96d20e5b1833aff"
+  }
+}

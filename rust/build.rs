@@ -6,8 +6,8 @@ use std::path::PathBuf;
 
 fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let package_dir = manifest_dir.join("..").join("pocket_tts");
-    let configs_dir = package_dir.join("config");
+    let package_dir = manifest_dir.join("..").join("pocket_tts_timestamped");
+    let configs_dir = manifest_dir.join("config");
     let index_html = package_dir.join("static").join("index.html");
 
     println!("cargo:rerun-if-changed={}", configs_dir.display());

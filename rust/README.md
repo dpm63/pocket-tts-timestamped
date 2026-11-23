@@ -24,3 +24,12 @@ models use. x86 builds target x86-64-v3 (AVX2), see `.cargo/config.toml`.
   Python package's, as two runs with different seeds would. The seed is fixed, so a command
   always gives the same audio; `POCKET_TTS_SEED` sets another one.
 - The tensor operations use 4 threads by default; set `RAYON_NUM_THREADS` to change it.
+
+## Stable baseline imported on 23 November 2026
+
+Sources and configurations come from Pocket TTS 4.0.1, commit
+`a922b912dfa366975294afb568d815b305acde5d`, without later main changes.
+The legacy Rust package label at that tag is 3.3.0; the source release is4.0.1.
+The build embeds the unmodified stable configs under `rust/config`, and reads
+the web page from this fork’s renamed Python package. No Rust word-timestamp
+implementation is included in this baseline commit.
