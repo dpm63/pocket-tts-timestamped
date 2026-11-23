@@ -71,3 +71,13 @@ mimi:
     dimension: 32
     output_dimension: 512
   #weights_path: codec.safetensors
+
+timestamp_heads:
+- layer: 17
+  head: 13
+- layer: 13
+  head: 10
+- layer: 18
+  head: 5
+- layer: 14
+  head: 10

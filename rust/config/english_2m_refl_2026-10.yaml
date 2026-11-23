@@ -94,3 +94,11 @@ mimi:
     output_dimensions:
     - 128
 default_eos_threshold: -1.0
+
+timestamp_heads:
+- layer: 5
+  head: 2
+- layer: 2
+  head: 2
+- layer: 3
+  head: 2

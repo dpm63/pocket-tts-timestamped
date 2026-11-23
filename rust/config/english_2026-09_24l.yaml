@@ -60,3 +60,11 @@ mimi:
   quantizer:
     dimension: 32
     output_dimension: 512
+
+timestamp_heads:
+- layer: 14
+  head: 10
+- layer: 17
+  head: 11
+- layer: 15
+  head: 4

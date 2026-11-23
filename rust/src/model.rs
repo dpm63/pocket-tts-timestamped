@@ -21,6 +21,11 @@ use std::time::Instant;
 use xn::{BackendQ, Tensor, WithDTypeF};
 
 /// The backends this binary runs on: the CPU, with f32 or int8 weights.
+struct GeneratedFrame<T: WithDTypeF, B: xn::Backend> {
+    latent: Tensor<T, B>,
+    scores: Option<Vec<f32>>,
+}
+
 pub trait CpuBackend: BackendQ<B = xn::CpuDevice> {}
 impl<Q: BackendQ<B = xn::CpuDevice>> CpuBackend for Q {}
 
@@ -29,6 +34,51 @@ const GEN_SECONDS_PADDING: f64 = 2.0;
 /// EOS is ignored on the first frames: before speech starts, the EOS logit of some voices can
 /// cross the threshold, and a short text then ends before the word is spoken.
 const MIN_FRAMES_BEFORE_EOS: usize = 6;
+// Mimi emits 80 ms per frame. Bound both producer backlog and individual decode
+// work: a blocked PCM consumer must not turn the next decode into seconds of audio.
+const LATENT_QUEUE_CAPACITY: usize = 4;
+const MAX_DECODE_FRAMES: usize = 4;
+// Preserve the former ONNX ceiling margin independently of the requested
+// post-EOS tail (already supplied by the app as six/eight frames).
+const COMPLETION_MARGIN_FRAMES: usize = 3;
+
+fn completion_budget(estimated: usize) -> Result<usize> {
+    estimated
+        .checked_add(COMPLETION_MARGIN_FRAMES)
+        .context("Pocket generation budget overflow")
+}
+
+fn timestamp_frame_size(sample_rate: usize, frame_rate: f64) -> Result<usize> {
+    let samples = sample_rate as f64 / frame_rate;
+    anyhow::ensure!(
+        frame_rate.is_finite()
+            && frame_rate > 0.
+            && samples.is_finite()
+            && samples >= 1.
+            && samples <= usize::MAX as f64
+            && (samples - samples.round()).abs() < 1e-6,
+        "Invalid timestamp frame rate"
+    );
+    Ok(samples.round() as usize)
+}
+
+// Preserve the standard CLI warning policy unless its caller or environment
+// explicitly requires a completed EOS tail. Cancellation is not exhaustion.
+fn check_generation_completion(
+    reached_max_len: bool,
+    require_eos: bool,
+    environment: Option<&str>,
+) -> Result<()> {
+    if reached_max_len {
+        if require_eos || environment == Some("1") {
+            bail!("Generation reached maximum length without EOS");
+        }
+        log::warn!(
+            "Maximum generation length reached without EOS, this very often indicates an error."
+        );
+    }
+    Ok(())
+}
 
 pub fn voice_cloning_unsupported() -> String {
     format!(
@@ -126,6 +176,7 @@ pub struct TtsModel<Q: CpuBackend> {
     text_options: TextOptions,
     has_voice_cloning: bool,
     rng: Mutex<NoiseRng>,
+    require_eos: bool,
     num_layers: usize,
     num_kv_heads: usize,
     head_dim: usize,
@@ -214,6 +265,7 @@ impl<Q: CpuBackend> TtsModel<Q> {
             head_dim: transformer.head_dim(),
             text_options: TextOptions::from_config(&config),
             rng: Mutex::new(NoiseRng::new(temperature, options.noise_clamp)?),
+            require_eos: false,
             config,
             origin,
             model,
@@ -303,7 +355,7 @@ impl<Q: CpuBackend> TtsModel<Q> {
     }
 
     /// Reads a state written by `export-voice`, from this binary or the Python package.
-    fn import_state(&self, path: &Path) -> Result<VoiceState<Q>> {
+    pub fn import_state(&self, path: &Path) -> Result<VoiceState<Q>> {
         let file = SafetensorsFile::open(path)?;
         let dim_per_head = self.head_dim;
         let mut layer_states = Vec::with_capacity(self.num_layers);
@@ -360,7 +412,10 @@ impl<Q: CpuBackend> TtsModel<Q> {
             }));
         }
         Ok(VoiceState {
-            transformer_state: StreamingTransformerState { layer_states },
+            transformer_state: StreamingTransformerState {
+                layer_states,
+                attention_capture: None,
+            },
         })
     }
 
@@ -409,7 +464,67 @@ impl<Q: CpuBackend> TtsModel<Q> {
         on_chunk: &mut (dyn FnMut(&[f32]) -> Result<()> + Send),
     ) -> Result<()> {
         let tokens = self.tokenizer.encode(text)?;
-        let max_gen_len = self.estimate_max_gen_len(tokens.len());
+        self.generate_prepared_tokens(voice, &tokens, frames_after_eos, stop, on_chunk)
+    }
+
+    /// Opt into an error when generation exhausts its budget before the EOS tail.
+    /// The default preserves the standard CLI warning; the upstream environment
+    /// override `KPOCKET_TTS_ERROR_WITHOUT_EOS=1` also requires an error.
+    pub fn set_require_eos(&mut self, required: bool) {
+        self.require_eos = required;
+    }
+
+    pub fn set_seed(&self, seed: u64) {
+        self.rng
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .reseed(seed);
+    }
+
+    pub fn generate_prepared_tokens(
+        &self,
+        voice: &VoiceState<Q>,
+        tokens: &[u32],
+        frames_after_eos: usize,
+        stop: &AtomicBool,
+        on_chunk: &mut (dyn FnMut(&[f32]) -> Result<()> + Send),
+    ) -> Result<()> {
+        self.generate_tokens_internal(voice, tokens, frames_after_eos, stop, on_chunk, None, None)
+    }
+
+    pub fn generate_tokens_timestamped(
+        &self,
+        voice: &VoiceState<Q>,
+        tokens: &[u32],
+        frames_after_eos: usize,
+        stop: &AtomicBool,
+        on_chunk: &mut (dyn FnMut(&[f32]) -> Result<()> + Send),
+        layout: crate::timestamps::Layout,
+        on_word: &mut (dyn FnMut(crate::timestamps::WordEvent) -> Result<()> + Send),
+    ) -> Result<()> {
+        layout.validate(tokens.len())?;
+        self.generate_tokens_internal(
+            voice,
+            tokens,
+            frames_after_eos,
+            stop,
+            on_chunk,
+            Some(layout),
+            Some(on_word),
+        )
+    }
+
+    fn generate_tokens_internal(
+        &self,
+        voice: &VoiceState<Q>,
+        tokens: &[u32],
+        frames_after_eos: usize,
+        stop: &AtomicBool,
+        on_chunk: &mut (dyn FnMut(&[f32]) -> Result<()> + Send),
+        layout: Option<crate::timestamps::Layout>,
+        on_word: Option<&mut (dyn FnMut(crate::timestamps::WordEvent) -> Result<()> + Send)>,
+    ) -> Result<()> {
+        let max_gen_len = completion_budget(self.estimate_max_gen_len(tokens.len()))?;
         let seq_budget = voice.len() + tokens.len() + max_gen_len;
         let transformer_state = voice.transformer_state.with_seq_budget(seq_budget)?;
         let mut state = TTSState {
@@ -421,13 +536,39 @@ impl<Q: CpuBackend> TtsModel<Q> {
 
         let t_generating = Instant::now();
         let start = Instant::now();
-        self.model.prompt_text(&mut state, &tokens)?;
+        self.model.prompt_text(&mut state, tokens)?;
         log::info!("Prompting text took {} ms", start.elapsed().as_millis());
 
+        if let Some(layout) = &layout {
+            let heads = self
+                .config
+                .timestamp_heads
+                .as_ref()
+                .context("No timestamp heads for this checkpoint")?;
+            anyhow::ensure!(
+                heads.iter().all(|h| h.layer < self.num_layers
+                    && h.head < self.config.flow_lm.transformer.num_heads),
+                "Timestamp head outside model"
+            );
+            state.flow_lm_state.transformer_state.attention_capture =
+                Some(ptts::timestamp_attention::AttentionCapture::new(
+                    heads.iter().map(|h| (h.layer, h.head)).collect(),
+                    voice.len(),
+                    layout.token_to_unit.clone(),
+                )?);
+        }
         let sample_rate = self.sample_rate();
-        let (latent_tx, latent_rx) = std::sync::mpsc::channel::<Option<Tensor<Q::T, Q::B>>>();
+        let (latent_tx, latent_rx) =
+            std::sync::mpsc::sync_channel::<GeneratedFrame<Q::T, Q::B>>(LATENT_QUEUE_CAPACITY);
         let (generated, decoded) = std::thread::scope(|s| {
-            let decoder = s.spawn(move || self.decode_worker(latent_rx, on_chunk));
+            let decoder = s.spawn(move || {
+                self.decode_worker(
+                    latent_rx,
+                    on_chunk,
+                    layout.map(|l| crate::timestamps::Alignment::new(l.units)),
+                    on_word,
+                )
+            });
             let generated = self.autoregressive_generation(
                 &mut state,
                 max_gen_len,
@@ -435,8 +576,9 @@ impl<Q: CpuBackend> TtsModel<Q> {
                 &latent_tx,
                 stop,
             );
-            // Closes the stream, also on error, so that the decoder finishes.
-            let _ = latent_tx.send(None);
+            // Disconnect rather than enqueue an EOF sentinel: closing must never
+            // wait for capacity, including after cancellation or a decoder error.
+            drop(latent_tx);
             let decoded = decoder
                 .join()
                 .unwrap_or_else(|_| Err(anyhow::anyhow!("the decoder panicked")));
@@ -459,7 +601,7 @@ impl<Q: CpuBackend> TtsModel<Q> {
         state: &mut TTSState<Q>,
         max_gen_len: usize,
         frames_after_eos: usize,
-        latent_tx: &std::sync::mpsc::Sender<Option<Tensor<Q::T, Q::B>>>,
+        latent_tx: &std::sync::mpsc::SyncSender<GeneratedFrame<Q::T, Q::B>>,
         stop: &AtomicBool,
     ) -> Result<()> {
         let mut previous: Option<Tensor<Q::T, Q::B>> = None;
@@ -476,6 +618,14 @@ impl<Q: CpuBackend> TtsModel<Q> {
                 None => StepInput::Bos { batch: 1 },
                 Some(latent) => StepInput::Latent(latent),
             };
+            if let Some(capture) = state
+                .flow_lm_state
+                .transformer_state
+                .attention_capture
+                .as_mut()
+            {
+                capture.begin_frame();
+            }
             let (latent, is_eos) = {
                 let mut rng = self.rng.lock().unwrap_or_else(|e| e.into_inner());
                 self.model.generate_step(state, input, &mut *rng)?
@@ -488,21 +638,32 @@ impl<Q: CpuBackend> TtsModel<Q> {
                 break;
             }
             // A closed channel means the decoder stopped on an error, which it reports.
-            if latent_tx.send(Some(latent.clone())).is_err() {
+            if latent_tx
+                .send(GeneratedFrame {
+                    latent: latent.clone(),
+                    scores: state
+                        .flow_lm_state
+                        .transformer_state
+                        .attention_capture
+                        .as_ref()
+                        .map(|c| c.finish_frame())
+                        .transpose()?,
+                })
+                .is_err()
+            {
                 reached_max_len = false;
                 break;
             }
             previous = Some(latent);
             step_times.push(start.elapsed().as_millis());
         }
-        if reached_max_len {
-            if std::env::var("KPOCKET_TTS_ERROR_WITHOUT_EOS").is_ok_and(|v| v == "1") {
-                bail!("Generation reached maximum length without EOS!")
-            }
-            log::warn!(
-                "Maximum generation length reached without EOS, this very often indicates an error."
-            );
-        }
+        check_generation_completion(
+            reached_max_len,
+            self.require_eos,
+            std::env::var("KPOCKET_TTS_ERROR_WITHOUT_EOS")
+                .ok()
+                .as_deref(),
+        )?;
         if !step_times.is_empty() {
             let mean = step_times.iter().sum::<u128>() / step_times.len() as u128;
             log::info!("Average generation step time: {mean} ms");
@@ -510,12 +671,14 @@ impl<Q: CpuBackend> TtsModel<Q> {
         Ok(())
     }
 
-    /// Decodes the latents as they come, as many as are queued in one call, and hands the audio
+    /// Decodes at most four queued latents per call, and hands the audio
     /// to `on_chunk`. Returns the number of samples decoded.
     fn decode_worker(
         &self,
-        latent_rx: std::sync::mpsc::Receiver<Option<Tensor<Q::T, Q::B>>>,
+        latent_rx: std::sync::mpsc::Receiver<GeneratedFrame<Q::T, Q::B>>,
         on_chunk: &mut (dyn FnMut(&[f32]) -> Result<()> + Send),
+        mut alignment: Option<crate::timestamps::Alignment>,
+        mut on_word: Option<&mut (dyn FnMut(crate::timestamps::WordEvent) -> Result<()> + Send)>,
     ) -> Result<usize> {
         let mut mimi_state = self.model.init_mimi_state(1)?;
         // A fresh Mimi decoder state puts a small step in its first samples, heard as a click at
@@ -523,20 +686,20 @@ impl<Q: CpuBackend> TtsModel<Q> {
         let fade_len = self.sample_rate() / 200;
         let mut fade_in = true;
         let mut total = 0;
-        while let Ok(Some(latent)) = latent_rx.recv() {
+        while let Ok(latent) = latent_rx.recv() {
             let mut latents = vec![latent];
             let mut finished = false;
-            loop {
+            while latents.len() < MAX_DECODE_FRAMES {
                 match latent_rx.try_recv() {
-                    Ok(Some(latent)) => latents.push(latent),
-                    Ok(None) | Err(TryRecvError::Disconnected) => {
+                    Ok(latent) => latents.push(latent),
+                    Err(TryRecvError::Disconnected) => {
                         finished = true;
                         break;
                     }
                     Err(TryRecvError::Empty) => break,
                 }
             }
-            let refs: Vec<&Tensor<Q::T, Q::B>> = latents.iter().collect();
+            let refs: Vec<&Tensor<Q::T, Q::B>> = latents.iter().map(|f| &f.latent).collect();
             let batch = Tensor::cat(&refs, 1)?;
             let audio = self.model.decode_latent(&batch, &mut mimi_state)?;
             let mut pcm = audio.to_vec()?;
@@ -551,10 +714,39 @@ impl<Q: CpuBackend> TtsModel<Q> {
                 }
                 fade_in = false;
             }
-            total += pcm.len();
-            on_chunk(&pcm)?;
+            if let (Some(alignment), Some(callback)) = (alignment.as_mut(), on_word.as_mut()) {
+                let frame_size =
+                    timestamp_frame_size(self.sample_rate(), self.config.mimi.frame_rate)?;
+                anyhow::ensure!(
+                    pcm.len() == latents.len() * frame_size,
+                    "Timestamp frame/audio count mismatch"
+                );
+                for (frame, audio) in latents.iter().zip(pcm.chunks_exact(frame_size)) {
+                    let scores = frame
+                        .scores
+                        .as_deref()
+                        .context("Timestamp frame missing attention")?;
+                    for event in
+                        alignment.process(scores, crate::timestamps::is_voiced(audio), total)?
+                    {
+                        callback(event)?;
+                    }
+                    // Decode in batches as before, but deliver each timed frame at its
+                    // real PCM boundary: consumers hold one pending word marker.
+                    on_chunk(audio)?;
+                    total += audio.len();
+                }
+            } else {
+                on_chunk(&pcm)?;
+                total += pcm.len();
+            }
             if finished {
                 break;
+            }
+        }
+        if let (Some(alignment), Some(callback)) = (alignment.as_mut(), on_word.as_mut()) {
+            for event in alignment.finish(total) {
+                callback(event)?;
             }
         }
         Ok(total)
@@ -580,6 +772,48 @@ pub fn is_safetensors_source(source: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn standard_generation_warns_without_eos_unless_environment_requires_it() {
+        // No process-global environment mutation: tests can run concurrently.
+        for environment in [None, Some(""), Some("0"), Some("true"), Some("2")] {
+            assert!(check_generation_completion(true, false, environment).is_ok());
+        }
+        let error = check_generation_completion(true, false, Some("1")).unwrap_err();
+        assert_eq!(
+            error.to_string(),
+            "Generation reached maximum length without EOS"
+        );
+    }
+
+    #[test]
+    fn explicit_eos_requirement_does_not_turn_completion_or_cancellation_into_errors() {
+        for environment in [None, Some("0"), Some("1")] {
+            assert!(check_generation_completion(true, true, environment).is_err());
+            assert!(check_generation_completion(false, true, environment).is_ok());
+            assert!(check_generation_completion(false, false, environment).is_ok());
+        }
+    }
+
+    #[test]
+    fn timestamp_frames_keep_fractional_frame_rates() {
+        assert_eq!(timestamp_frame_size(24000, 12.5).unwrap(), 1920);
+        assert!(timestamp_frame_size(24000, 0.).is_err());
+        assert!(timestamp_frame_size(24000, f64::NAN).is_err());
+    }
+    #[test]
+    fn late_eos_retains_the_onnx_completion_margin() {
+        // 45 tokens: ceil((45 / 3 + 2) * 12.5) = 213. EOS at 207 needs
+        // a loop reaching 213 to finish a six-frame tail, not a failure.
+        let estimated = 213;
+        let budget = completion_budget(estimated).unwrap();
+        assert_eq!(budget, 216);
+        assert!(!(0..estimated).any(|frame| frame >= 207 + 6));
+        assert!((0..budget).any(|frame| frame >= 207 + 6));
+        // Also preserve a short input's eight-frame tail at the boundary.
+        assert!((0..budget).any(|frame| frame >= 205 + 8));
+        assert!(completion_budget(usize::MAX).is_err());
+    }
 
     #[test]
     fn safetensors_sources_are_recognized() {

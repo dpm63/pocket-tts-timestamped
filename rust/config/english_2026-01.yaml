@@ -65,3 +65,9 @@ mimi:
     dimension: 32
     output_dimension: 512
   #weights_path: mimi_b6369a24.safetensors
+
+timestamp_heads:
+- layer: 3
+  head: 8
+- layer: 2
+  head: 0

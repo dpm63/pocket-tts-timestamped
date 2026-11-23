@@ -1,0 +1,34 @@
+name: Rust word timestamps
+on:
+  pull_request:
+    paths:
+      - 'rust/**'
+      - 'pocket_tts_timestamped/timestamps/**'
+      - '.github/workflows/rust-timestamps.yml'
+permissions:
+  contents: read
+jobs:
+  reference-parity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      RUSTUP_TOOLCHAIN: '1.96.0'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+      - name: Install toolchain
+        run: rustup toolchain install 1.96.0 --profile minimal --component rustfmt
+      - name: Prepare pinned dependency
+        run: python3 rust/prepare.py
+      - name: Rust formatting
+        run: cargo fmt --manifest-path rust/Cargo.toml -- --check
+      - name: Rust library regressions
+        run: cargo test --locked --release --manifest-path rust/Cargo.toml --lib
+      - name: Dependency and diagnostic regressions
+        run: python3 rust/test_prepare.py
+      - name: Install CPU-only reference dependency
+        run: python3 -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
+      - name: Compare unchanged Python alignment
+        run: python3 rust/check-parity.py

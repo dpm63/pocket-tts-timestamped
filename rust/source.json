@@ -5,7 +5,7 @@
     "embed stable configs locally",
     "renamed fork Python static asset path"
   ],
-  "wordTimestamps": false,
+  "wordTimestamps": true,
   "importedRustFiles": {
     "rust/.cargo/config.toml": "1eb759cbe353749acbaa1ac4a34879acf6b0188b3fff95a2a3924f2c7eb2d227",
     "rust/Cargo.lock": "3f2c5396eaaad4c64258ae724e012fdaa0c7b3e71165bcf0ef2c6b0641d18d27",
@@ -24,5 +24,33 @@
     "rust/src/text.rs": "dbdbb2d070b280109b0ea45c0b39ef8b90d66df3f387e71ab40db940a1ab0172",
     "rust/src/tokenizer.rs": "6a773be3cdd1a1b25e2de728d844f662dfbc1975767fe59b094c6a5bcbef5103",
     "rust/src/weights.rs": "65d1488fd4b2cccccd5a52a7bca6a079145d999594e50542b96d20e5b1833aff"
-  }
+  },
+  "timestampAlgorithmFork": "813d892a64a69894750d7f42bab129ea5804a654",
+  "xnBase": "7efa26973f81bba42cf2ace8da2c1eb9b605d54d",
+  "leggioCompatibilitySource": "8a73479571799a75d0123a3733cb5ae9efd48677",
+  "preservedCompatibility": [
+    "bounded latent queue and decoder batches",
+    "completion margin and EOS tail",
+    "explicit seed only when caller supplies one",
+    "5 ms fade-in",
+    "INT8/FP32/selective INT8"
+  ],
+  "baselineImportCommit": "307688120b43a18f673835f23163164e435ae5b8",
+  "timestampedModules": {
+    "src/audio.rs": "22cb27da0f0b816ee0e868e2427099505dccf4d48c848e8c9e6011d3093dafb0",
+    "src/config.rs": "ea96a26345968c63168cca265d48fd6043bd7ddc67f8e81995a62aa44948e757",
+    "src/defaults.rs": "d049465d04e32f02f0c1043f0c1f93a663beace96abe855e31004c3067245667",
+    "src/download.rs": "d1f48856cc3c3c17bc4f2fc1c5a402135eb2b8012fb3b7857634816e976bc655",
+    "src/lib.rs": "85170df4344d00101df22edb4dc13088763dca9b47ba3a77340f01be8fa10eb5",
+    "src/logging.rs": "56263f132f7aa944401ca3e0dc97fb06f18e38a024bc2a250e5542d8b11011b5",
+    "src/main.rs": "8060f8f79d0724df126e6fb4ff56989e983152e8dfbd9897a1ea4e755643459d",
+    "src/model.rs": "49cdb42ae8eefecd0ea09b821e6f80ed8e93d280e9b5e791d5f2fb92cc06694e",
+    "src/rng.rs": "1a032f542e74a04a5f88323904aa566bd87bfdf6d0c0c8bf77802c8e3c06c31e",
+    "src/server.rs": "a17050a5ed2fc4ac69497d3fe74f7f60f0ac3ddc7dcbcc9e932ab1ee6e9bc68b",
+    "src/text.rs": "dbdbb2d070b280109b0ea45c0b39ef8b90d66df3f387e71ab40db940a1ab0172",
+    "src/timestamps.rs": "0d9a948a8f476634a0192f9366200860d1405b55ca71de85998a23f058404ff2",
+    "src/tokenizer.rs": "6a773be3cdd1a1b25e2de728d844f662dfbc1975767fe59b094c6a5bcbef5103",
+    "src/weights.rs": "65d1488fd4b2cccccd5a52a7bca6a079145d999594e50542b96d20e5b1833aff"
+  },
+  "xnPatchSha256": "b45aabd399849180f6810ed759a8084b4a5853e5dacd3cb0d809430b99b53c1a"
 }

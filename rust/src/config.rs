@@ -173,7 +173,16 @@ impl MimiConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct TimestampHead {
+    pub layer: usize,
+    pub head: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub timestamp_heads: Option<Vec<TimestampHead>>,
     pub flow_lm: FlowLMConfig,
     pub mimi: MimiConfig,
     #[serde(default)]
