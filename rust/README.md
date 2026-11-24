@@ -66,7 +66,9 @@ python3 rust/check-parity.py
 patch digest, patched file hashes and tracked/untracked changes. It refuses a
 modified cache; use a fresh destination to investigate a mismatch. It never
 changes the separate developer checkout in `Libraries/xn-ptts`.
-Dependency setup errors retain their original Git output and cause.
+Dependency setup errors retain their original Git output and cause. Git commands
+use LF checkouts regardless of Windows/global autocrlf settings, without changing
+the user’s Git configuration.
 
 ### Library contract
 
@@ -139,7 +141,7 @@ Verified locally on 23 November 2026:
   policies and normal completion/cancellation. The standalone CLI also passed
   `cargo check --locked --release --manifest-path rust/Cargo.toml --bin pocket-tts`.
 - Rust/Python alignment: 200 deterministic reference fixtures passed.
-- Dependency materializer: three offline regressions passed, including injected
+- Dependency materializer: four offline regressions passed, including injected
   Git/timeout diagnostics, unexpected build scripts and out-of-hunk edits.
 - Application native integration: all catalog checkpoints across seven languages
   generated audio with word markers; the Italian fixed-seed comparison had

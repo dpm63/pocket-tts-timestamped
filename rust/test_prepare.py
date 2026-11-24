@@ -47,15 +47,16 @@ class PreparationTests(unittest.TestCase):
         self.git("init", "-q")
         self.git("config", "user.email", "fixture@example.invalid")
         self.git("config", "user.name", "Fixture")
+        self.git("config", "core.autocrlf", "false")
         file = self.repo / "ptts/src/lib.rs"
         file.parent.mkdir(parents=True)
-        file.write_text("unchanged\n" * 20 + "pub fn old() {}\n" + "tail\n" * 20)
+        file.write_text("unchanged\n" * 20 + "pub fn old() {}\n" + "tail\n" * 20, newline="\n")
         self.git("add", ".")
         self.git("commit", "-qm", "fixture base")
         base = self.git("rev-parse", "HEAD").strip()
-        file.write_text(file.read_text().replace("pub fn old()", "pub fn captured()"))
+        file.write_text(file.read_text().replace("pub fn old()", "pub fn captured()"), newline="\n")
         patchfile = self.root / "feature.patch"
-        patchfile.write_text(self.git("diff", "--binary"))
+        patchfile.write_text(self.git("diff", "--binary"), newline="\n")
         digest = hashlib.sha256(patchfile.read_bytes()).hexdigest()
         patchfile.with_suffix(".json").write_text(
             json.dumps(
@@ -84,6 +85,37 @@ class PreparationTests(unittest.TestCase):
         file.write_text(file.read_text() + "\n// extra edit\n")
         with self.assertRaisesRegex(RuntimeError, "content differs"):
             module.prepare(self.repo, self.feature)
+
+    def test_global_windows_line_endings_do_not_change_pinned_bytes(self):
+        # Simulate a clean clone before its first checkout under autocrlf=true.
+        destination = self.root / "windows-cache"
+        base = self.git("rev-parse", "HEAD").strip()
+        subprocess.check_output(
+            ["git", "clone", "--no-checkout", str(self.repo), str(destination)],
+            stderr=subprocess.STDOUT,
+            timeout=30,
+        )
+        subprocess.check_output(
+            ["git", "config", "core.autocrlf", "true"],
+            cwd=destination,
+            stderr=subprocess.STDOUT,
+            timeout=30,
+        )
+        module.run(["git", "checkout", "--detach", base], destination)
+        self.assertNotIn(b"\r\n", (destination / "ptts/src/lib.rs").read_bytes())
+        digest = module.prepare(destination, self.feature)
+        self.assertEqual(module.prepare(destination, self.feature), digest)
+        self.assertEqual(
+            subprocess.check_output(
+                ["git", "config", "--local", "core.autocrlf"],
+                cwd=destination,
+                stderr=subprocess.STDOUT,
+                timeout=30,
+            )
+            .decode()
+            .strip(),
+            "true",
+        )
 
     def test_untracked_build_script_is_rejected(self):
         module.prepare(self.repo, self.feature)

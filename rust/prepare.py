@@ -22,8 +22,12 @@ def log(message: str) -> None:
 
 def run(args: list[str], cwd: Path | None = None) -> str:
     try:
+        # The pinned file hashes and patch are defined on LF bytes. Override a
+        # Windows/global autocrlf preference for these Git commands only; never
+        # change the user's configuration or rewrite an existing modified cache.
+        command = [args[0], "-c", "core.autocrlf=false", "-c", "core.eol=lf", *args[1:]]
         return subprocess.check_output(
-            args, cwd=cwd, stderr=subprocess.STDOUT, timeout=180
+            command, cwd=cwd, stderr=subprocess.STDOUT, timeout=180
         ).decode()
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         output = error.output or b""
