@@ -1,0 +1,9 @@
+{
+  "baseCommit": "7efa26973f81bba42cf2ace8da2c1eb9b605d54d",
+  "patchSha256": "b45aabd399849180f6810ed759a8084b4a5853e5dacd3cb0d809430b99b53c1a",
+  "files": {
+    "ptts/src/lib.rs": "558157f084b9296b2b863823fe2c4789a3fbbe09bbaebf0efcd49d90d7cf7a6c",
+    "ptts/src/transformer.rs": "7e0ea4191f9b0bf17b9ef5dead47c53ca7c369c1f1b0930e848081fe2105d0cf",
+    "ptts/src/timestamp_attention.rs": "d5cf01bb943a1772ccc9fa523914487042bf5c85c01060f01a67f327bfd2722f"
+  }
+}

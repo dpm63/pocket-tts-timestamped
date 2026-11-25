@@ -1,0 +1,204 @@
+diff --git a/ptts/src/lib.rs b/ptts/src/lib.rs
+index 5cf8647..08cb23a 100644
+--- a/ptts/src/lib.rs
++++ b/ptts/src/lib.rs
+@@ -125,3 +125,5 @@ pub trait Tokenizer {
+ fn test_config() -> tts_model::TTSConfig {
+     serde_json::from_str(include_str!("../tests/fixtures/config.json")).unwrap()
+ }
++
++pub mod timestamp_attention;
+diff --git a/ptts/src/transformer.rs b/ptts/src/transformer.rs
+index b459666..96cbe41 100644
+--- a/ptts/src/transformer.rs
++++ b/ptts/src/transformer.rs
+@@ -109,6 +109,7 @@ impl<Q: BackendQ> StreamingMultiheadAttention<Q> {
+         rope: &RotaryEmbedding<Q::T, Q::B>,
+         state: &mut StreamingMHAState<Q::T, Q::B>,
+         mask: Option<&Tensor<Q::T, Q::B>>,
++        capture: Option<(&mut crate::timestamp_attention::AttentionCapture, usize)>,
+     ) -> Result<Tensor<Q::T, Q::B>> {
+         use xn::ModuleT;
+         let (b, t, _) = query.dims3()?;
+@@ -135,6 +136,9 @@ impl<Q: BackendQ> StreamingMultiheadAttention<Q> {
+         let (k, v) = state.complete_kv(&k, &v)?;
+         let (k, v) = (self.repeat_kv(k)?, self.repeat_kv(v)?);
+ 
++        if let Some((capture, layer)) = capture {
++            capture.capture(layer, &q, &k)?;
++        }
+         let inv_sqrt_d = 1.0 / (d as f32).sqrt();
+ 
+         let x = if t == 1 {
+@@ -249,6 +253,7 @@ pub enum LayerAttentionState<T: WithDTypeF, B: Backend> {
+ #[derive(Clone, Debug)]
+ pub struct StreamingTransformerState<T: WithDTypeF, B: Backend> {
+     pub layer_states: Vec<LayerAttentionState<T, B>>,
++    pub attention_capture: Option<crate::timestamp_attention::AttentionCapture>,
+ }
+ 
+ impl<T: WithDTypeF, B: Backend> StreamingTransformerState<T, B> {
+@@ -294,7 +299,7 @@ impl<T: WithDTypeF, B: Backend> StreamingTransformerState<T, B> {
+             };
+             layer_states.push(copied);
+         }
+-        Ok(Self { layer_states })
++        Ok(Self { layer_states, attention_capture: None })
+     }
+ }
+ 
+@@ -492,6 +497,7 @@ impl<Q: BackendQ> StreamingTransformerLayer<Q> {
+         rope: &RotaryEmbedding<Q::T, Q::B>,
+         state: &mut LayerAttentionState<Q::T, Q::B>,
+         mask: Option<&Tensor<Q::T, Q::B>>,
++        capture: Option<(&mut crate::timestamp_attention::AttentionCapture, usize)>,
+     ) -> Result<Tensor<Q::T, Q::B>> {
+         use xn::ModuleT;
+ 
+@@ -502,7 +508,7 @@ impl<Q: BackendQ> StreamingTransformerLayer<Q> {
+                 attn.forward(&norm1, rope, cache, mask)?
+             }
+             (AttentionKind::FlowLm(attn), LayerAttentionState::FlowLm(mha_state)) => {
+-                attn.forward(&norm1, rope, mha_state, mask)?
++                attn.forward(&norm1, rope, mha_state, mask, capture)?
+             }
+             _ => xn::bail!("attention kind and state type mismatch"),
+         };
+@@ -593,7 +599,7 @@ impl<Q: BackendQ> StreamingTransformer<Q> {
+             .iter()
+             .map(|l| l.init_state(batch_size, sequence_length))
+             .collect::<Result<Vec<_>>>()?;
+-        Ok(StreamingTransformerState { layer_states })
++        Ok(StreamingTransformerState { layer_states, attention_capture: None })
+     }
+ 
+     pub fn forward(
+@@ -653,8 +659,16 @@ impl<Q: BackendQ> StreamingTransformer<Q> {
+             .unwrap_or(0);
+         let rope =
+             RotaryEmbedding::new(self.head_dim, offset, seq_len, self.max_period, x.device())?;
+-        for (layer, layer_state) in self.layers.iter().zip(state.layer_states.iter_mut()) {
+-            x = layer.forward(&x, &rope, layer_state, mask.as_ref())?;
++        for (index, (layer, layer_state)) in
++            self.layers.iter().zip(state.layer_states.iter_mut()).enumerate()
++        {
++            x = layer.forward(
++                &x,
++                &rope,
++                layer_state,
++                mask.as_ref(),
++                state.attention_capture.as_mut().map(|c| (c, index)),
++            )?;
+         }
+         Ok(x)
+     }
+@@ -771,6 +785,7 @@ mod with_seq_budget_tests {
+         let v = Tensor::from_vec(data.iter().map(|x| -x).collect(), (b, seq, h, d), &CpuDevice)
+             .unwrap();
+         StreamingTransformerState {
++            attention_capture: None,
+             layer_states: vec![LayerAttentionState::FlowLm(StreamingMHAState {
+                 k_cache: k,
+                 v_cache: v,
+diff --git a/ptts/src/timestamp_attention.rs b/ptts/src/timestamp_attention.rs
+new file mode 100644
+index 0000000..e8cbb7b
+--- /dev/null
++++ b/ptts/src/timestamp_attention.rs
+@@ -0,0 +1,96 @@
++//! Optional selected-head attention capture. Disabled states keep the normal SDPA path.
++use xn::{Backend, Result, Tensor, TensorView, WithDTypeF};
++
++#[derive(Debug, Clone)]
++pub struct AttentionCapture {
++    heads: Vec<(usize, usize)>,
++    text_start: usize,
++    mapping: Vec<Vec<f32>>,
++    sum: Vec<f32>,
++    recorded: usize,
++}
++impl AttentionCapture {
++    /// Each token row contains its fractional overlap with the text units.
++    pub fn new(
++        heads: Vec<(usize, usize)>,
++        text_start: usize,
++        mapping: Vec<Vec<f32>>,
++    ) -> Result<Self> {
++        let units = mapping.first().map_or(0, Vec::len);
++        if heads.is_empty()
++            || mapping.is_empty()
++            || units == 0
++            || mapping
++                .iter()
++                .any(|r| r.len() != units || r.iter().any(|v| !v.is_finite() || *v < 0.0))
++            || heads.iter().enumerate().any(|(i, h)| heads[..i].contains(h))
++        {
++            xn::bail!("invalid timestamp attention configuration")
++        }
++        Ok(Self { heads, text_start, mapping, sum: vec![0.; units], recorded: 0 })
++    }
++    pub fn begin_frame(&mut self) {
++        self.sum.fill(0.);
++        self.recorded = 0;
++    }
++    pub fn finish_frame(&self) -> Result<Vec<f32>> {
++        if self.recorded != self.heads.len() {
++            xn::bail!("timestamp heads missing: {}/{}", self.recorded, self.heads.len())
++        }
++        Ok(self.sum.iter().map(|v| v / self.recorded as f32).collect())
++    }
++    pub fn capture<T: WithDTypeF, B: Backend>(
++        &mut self,
++        layer: usize,
++        q: &Tensor<T, B>,
++        k: &TensorView<T, B>,
++    ) -> Result<()> {
++        let selected: Vec<_> =
++            self.heads.iter().filter(|(l, _)| *l == layer).map(|(_, h)| *h).collect();
++        if selected.is_empty() {
++            return Ok(());
++        }
++        let (b, t, heads, d) = q.dims4()?;
++        if b != 1 || t != 1 || d == 0 {
++            xn::bail!("timestamps require single-stream decode")
++        }
++        let end = self.text_start + self.mapping.len();
++        if k.dims().len() != 4 || end > k.dims()[1] || selected.iter().any(|h| *h >= heads) {
++            xn::bail!("timestamp head or text range outside attention")
++        }
++        for head in selected {
++            // Read only the configured head and text keys, never the whole KV cache.
++            let query = q.narrow(2, head..head + 1)?.contiguous()?.to_vec()?;
++            let keys = k
++                .narrow(1, self.text_start..end)?
++                .narrow(2, head..head + 1)?
++                .contiguous()?
++                .to_vec()?;
++            let mut logits: Vec<f32> = keys
++                .chunks_exact(d)
++                .map(|key| {
++                    key.iter()
++                        .zip(&query)
++                        .map(|(a, b)| WithDTypeF::to_f32(*a) * WithDTypeF::to_f32(*b))
++                        .sum::<f32>()
++                        / (d as f32).sqrt()
++                })
++                .collect();
++            let max = logits.iter().copied().fold(f32::NEG_INFINITY, f32::max);
++            for x in &mut logits {
++                *x = (*x - max).exp();
++            }
++            let total: f32 = logits.iter().sum();
++            if !total.is_finite() || total <= 0. {
++                xn::bail!("non-finite timestamp attention")
++            }
++            for (prob, row) in logits.iter().zip(&self.mapping) {
++                for (sum, weight) in self.sum.iter_mut().zip(row) {
++                    *sum += prob / total * weight;
++                }
++            }
++            self.recorded += 1;
++        }
++        Ok(())
++    }
++}
