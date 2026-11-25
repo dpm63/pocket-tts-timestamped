@@ -469,7 +469,7 @@ impl<Q: CpuBackend> TtsModel<Q> {
     }
 
     /// Opt into an error when generation exhausts its budget before the EOS tail.
-    /// By default it is only a warning, unless `KPOCKET_TTS_ERROR_WITHOUT_EOS=1` is set.
+    /// By default it is only a warning, unless `POCKET_TTS_ERROR_WITHOUT_EOS=1` is set.
     pub fn set_require_eos(&mut self, required: bool) {
         self.require_eos = required;
     }
@@ -662,7 +662,7 @@ impl<Q: CpuBackend> TtsModel<Q> {
         check_generation_completion(
             reached_max_len,
             self.require_eos,
-            std::env::var("KPOCKET_TTS_ERROR_WITHOUT_EOS")
+            std::env::var("POCKET_TTS_ERROR_WITHOUT_EOS")
                 .ok()
                 .as_deref(),
         )?;
