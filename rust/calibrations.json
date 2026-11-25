@@ -1,0 +1,257 @@
+[
+  {
+    "sha256": "6af958c43372082b91af79d98d07d3fa3c2a2e41b628e5b119fdb46e19f0e49f",
+    "language": "it",
+    "numLayers": 6,
+    "numHeads": 16,
+    "modelDim": 1024,
+    "heads": [
+      {
+        "layer": 3,
+        "head": 9
+      },
+      {
+        "layer": 4,
+        "head": 5
+      },
+      {
+        "layer": 3,
+        "head": 14
+      },
+      {
+        "layer": 3,
+        "head": 0
+      }
+    ],
+    "sourceWeights": {
+      "repo": "kyutai/pocket-tts-without-voice-cloning",
+      "revision": "4e1e0a3e611c51c0b4ed8174fc10f32a54644303",
+      "path": "languages/italian/model.safetensors",
+      "sizeBytes": 219029196,
+      "sha256": "6af958c43372082b91af79d98d07d3fa3c2a2e41b628e5b119fdb46e19f0e49f",
+      "gitBlob": "439b9444a53e97c9d01a3c441952978c4774d16e"
+    },
+    "reference": {
+      "commit": "ea2990a3ab0f41e0f5cbe9b454083a485d361893",
+      "config": "pocket_tts_timestamped/config/italian.yaml"
+    }
+  },
+  {
+    "sha256": "982369b35c9fce8e8beb027f76c5d15dc0936851d8cb66f75d9678e0e6772b41",
+    "language": "pt",
+    "numLayers": 6,
+    "numHeads": 16,
+    "modelDim": 1024,
+    "heads": [
+      {
+        "layer": 3,
+        "head": 9
+      },
+      {
+        "layer": 4,
+        "head": 2
+      },
+      {
+        "layer": 4,
+        "head": 5
+      },
+      {
+        "layer": 3,
+        "head": 10
+      }
+    ],
+    "sourceWeights": {
+      "repo": "kyutai/pocket-tts-without-voice-cloning",
+      "revision": "4e1e0a3e611c51c0b4ed8174fc10f32a54644303",
+      "path": "languages/portuguese/model.safetensors",
+      "sizeBytes": 219029196,
+      "sha256": "982369b35c9fce8e8beb027f76c5d15dc0936851d8cb66f75d9678e0e6772b41",
+      "gitBlob": "0e30722cccaa480d18375cfb3765d84c9da0c7db"
+    },
+    "reference": {
+      "commit": "ea2990a3ab0f41e0f5cbe9b454083a485d361893",
+      "config": "pocket_tts_timestamped/config/portuguese.yaml"
+    }
+  },
+  {
+    "sha256": "0de1e5b074458de1330a264d0de39649a51eedf001cc30d181b80c7b0d00e61d",
+    "language": "nl",
+    "numLayers": 6,
+    "numHeads": 16,
+    "modelDim": 1024,
+    "heads": [
+      {
+        "layer": 3,
+        "head": 14
+      },
+      {
+        "layer": 4,
+        "head": 5
+      },
+      {
+        "layer": 5,
+        "head": 4
+      }
+    ],
+    "sourceWeights": {
+      "repo": "kyutai/pocket-tts-without-voice-cloning",
+      "revision": "4e1e0a3e611c51c0b4ed8174fc10f32a54644303",
+      "path": "languages/dutch/model.safetensors",
+      "sizeBytes": 219029196,
+      "sha256": "0de1e5b074458de1330a264d0de39649a51eedf001cc30d181b80c7b0d00e61d",
+      "gitBlob": "60f65da7bfaec14dd807553addaf6f831c712607"
+    },
+    "reference": {
+      "commit": "ea2990a3ab0f41e0f5cbe9b454083a485d361893",
+      "config": "pocket_tts_timestamped/config/dutch.yaml"
+    }
+  },
+  {
+    "sha256": "916ccd2686e9311cb40054893a3c4284393d658825ffc714a276f3e9b152344f",
+    "language": "en",
+    "numLayers": 6,
+    "numHeads": 16,
+    "modelDim": 1024,
+    "heads": [
+      {
+        "layer": 3,
+        "head": 8
+      },
+      {
+        "layer": 2,
+        "head": 0
+      }
+    ],
+    "sourceWeights": {
+      "repo": "kyutai/pocket-tts-without-voice-cloning",
+      "revision": "e7205b6ee50e654a5ea19f0e9df2b0813b05e921",
+      "path": "languages/english/model.safetensors",
+      "sizeBytes": 219029196,
+      "sha256": "916ccd2686e9311cb40054893a3c4284393d658825ffc714a276f3e9b152344f",
+      "gitBlob": "4b4e299820a8b9b0ec95805dc1f512659be7e123"
+    },
+    "reference": {
+      "commit": "ea2990a3ab0f41e0f5cbe9b454083a485d361893",
+      "config": "pocket_tts_timestamped/config/english.yaml"
+    }
+  },
+  {
+    "sha256": "16365c43eaabee9b222cd414d6a48f0976b4800a21fe5d55253f645eff7eeb1f",
+    "language": "it",
+    "numLayers": 6,
+    "numHeads": 16,
+    "modelDim": 1024,
+    "heads": [
+      {
+        "layer": 3,
+        "head": 9
+      },
+      {
+        "layer": 4,
+        "head": 5
+      },
+      {
+        "layer": 3,
+        "head": 10
+      }
+    ],
+    "sourceWeights": {
+      "repo": "kyutai/pocket-tts-without-voice-cloning",
+      "revision": "1e08e6a23401048648a9fdcfde2f89348215c2a7",
+      "path": "languages/italian/model.safetensors",
+      "sizeBytes": 219029196,
+      "sha256": "16365c43eaabee9b222cd414d6a48f0976b4800a21fe5d55253f645eff7eeb1f"
+    },
+    "reference": {
+      "commit": "813d892a64a69894750d7f42bab129ea5804a654",
+      "config": "pocket_tts_timestamped/config/italian.yaml"
+    }
+  },
+  {
+    "sha256": "d2fabbc2c383d30ee29fcd374f8281406cc501b1d963fe687691f8573de3252b",
+    "language": "de",
+    "numLayers": 6,
+    "numHeads": 16,
+    "modelDim": 1024,
+    "heads": [
+      {
+        "layer": 3,
+        "head": 14
+      },
+      {
+        "layer": 2,
+        "head": 0
+      }
+    ],
+    "sourceWeights": {
+      "repo": "kyutai/pocket-tts-without-voice-cloning",
+      "revision": "4e1e0a3e611c51c0b4ed8174fc10f32a54644303",
+      "path": "languages/german/model.safetensors",
+      "sizeBytes": 219029196,
+      "sha256": "d2fabbc2c383d30ee29fcd374f8281406cc501b1d963fe687691f8573de3252b",
+      "gitBlob": "a03b3f4c1f898c7d51fa991e3880b9109d3211e2"
+    },
+    "reference": {
+      "commit": "ea2990a3ab0f41e0f5cbe9b454083a485d361893",
+      "config": "pocket_tts_timestamped/config/german.yaml"
+    }
+  },
+  {
+    "sha256": "cbb0606d5d6976147f3343960b195ff94fde1f952e13ab6d9e097741ce5091c7",
+    "language": "es",
+    "numLayers": 6,
+    "numHeads": 16,
+    "modelDim": 1024,
+    "heads": [
+      {
+        "layer": 3,
+        "head": 9
+      },
+      {
+        "layer": 3,
+        "head": 14
+      },
+      {
+        "layer": 4,
+        "head": 5
+      }
+    ],
+    "sourceWeights": {
+      "repo": "kyutai/pocket-tts-without-voice-cloning",
+      "revision": "4e1e0a3e611c51c0b4ed8174fc10f32a54644303",
+      "path": "languages/spanish/model.safetensors",
+      "sizeBytes": 219029196,
+      "sha256": "cbb0606d5d6976147f3343960b195ff94fde1f952e13ab6d9e097741ce5091c7",
+      "gitBlob": "e054ff45bed20e3b9ec7978d6a6c7a2a1936373d"
+    },
+    "reference": {
+      "commit": "ea2990a3ab0f41e0f5cbe9b454083a485d361893",
+      "config": "pocket_tts_timestamped/config/spanish.yaml"
+    }
+  },
+  {
+    "sha256": "32e575398f06a5dbca16a7dfb8048e3cd3440502d80b07089adfb3318f79dec2",
+    "language": "fr",
+    "numLayers": 6,
+    "numHeads": 16,
+    "modelDim": 1024,
+    "heads": [
+      {
+        "layer": 3,
+        "head": 9
+      }
+    ],
+    "sourceWeights": {
+      "repo": "kyutai/pocket-tts-without-voice-cloning",
+      "revision": "8843db76457a91db32077edf8dfcd1c0e3e755fd",
+      "path": "languages/french/model.safetensors",
+      "sizeBytes": 219029196,
+      "sha256": "32e575398f06a5dbca16a7dfb8048e3cd3440502d80b07089adfb3318f79dec2",
+      "gitBlob": "40022f371763977d6d89a40c0f4d75d99c24ec70"
+    },
+    "reference": {
+      "commit": "ea2990a3ab0f41e0f5cbe9b454083a485d361893",
+      "config": "pocket_tts_timestamped/config/french.yaml"
+    }
+  }
+]

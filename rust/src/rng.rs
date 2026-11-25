@@ -23,6 +23,9 @@ pub struct NoiseRng {
 }
 
 impl NoiseRng {
+    pub fn reseed(&mut self, seed: u64) {
+        self.rng = rand::rngs::StdRng::seed_from_u64(seed);
+    }
     pub fn new(temperature: f32, noise_clamp: Option<f32>) -> anyhow::Result<Self> {
         let normal = Normal::new(0.0, temperature.max(0.0).sqrt())?;
         Ok(Self {

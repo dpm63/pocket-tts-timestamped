@@ -1,6 +1,7 @@
 [package]
 name = "pocket-tts"
-# Kept in step with the Python package in ../pyproject.toml.
+# The upstream Pocket TTS release the Rust sources come from (see source.json), independent
+# of the Python package's version in ../pyproject.toml.
 version = "4.0.1"
 edition = "2024"
 description = "Kyutai's pocket-sized text-to-speech, as a standalone binary with the CLI of the Python package"
@@ -22,7 +23,7 @@ accelerate = ["ptts/accelerate"]
 # models need on top of it (https://github.com/gabrieldemarmiesse/xn-ptts, branch
 # pocket-tts-small-models), pinned to a commit since its API is still moving between release
 # candidates.
-ptts = { git = "https://github.com/gabrieldemarmiesse/xn-ptts", rev = "7efa26973f81bba42cf2ace8da2c1eb9b605d54d", default-features = false, features = ["hf", "audio"] }
+ptts = { path = ".deps/xn-ptts/ptts", default-features = false, features = ["hf", "audio"] }
 # Must be the version ptts uses, its tensors cross the boundary.
 xn = "0.2.11"
 

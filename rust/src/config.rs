@@ -173,7 +173,16 @@ impl MimiConfig {
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
+pub struct TimestampHead {
+    pub layer: usize,
+    pub head: usize,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Config {
+    #[serde(default)]
+    pub timestamp_heads: Option<Vec<TimestampHead>>,
     pub flow_lm: FlowLMConfig,
     pub mimi: MimiConfig,
     #[serde(default)]
@@ -226,7 +235,7 @@ impl Origin {
     /// the web page.
     pub fn display_path(&self) -> String {
         match self {
-            Self::Language(language) => format!("pocket_tts/config/{language}.yaml"),
+            Self::Language(language) => format!("pocket_tts_timestamped/config/{language}.yaml"),
             Self::Custom(path) => path.clone(),
         }
     }
@@ -254,7 +263,7 @@ impl Config {
                 let language = language.unwrap_or(crate::defaults::DEFAULT_LANGUAGE);
                 let Some((_, yaml)) = CONFIGS.iter().find(|(name, _)| *name == language) else {
                     bail!(
-                        "Config file not found: pocket_tts/config/{language}.yaml. Did you make a typo? Available languages: {:?}",
+                        "Config file not found: pocket_tts_timestamped/config/{language}.yaml. Did you make a typo? Available languages: {:?}",
                         available_languages()
                     )
                 };

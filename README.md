@@ -2,6 +2,14 @@
 
 Fork of [Pocket TTS](https://github.com/kyutai-labs/pocket-tts) that adds word-level timestamps for streaming and non-streaming generation.
 
+## Rust word timestamps
+
+The Rust library in `rust/` ports streaming word alignment onto the Pocket TTS
+**4.0.1** synthesis sources. See
+[build instructions, API contract and verification](rust/README.md#word-timestamps).
+Its version is separate from the Python package's; the Rust CLI does not yet
+expose a timestamp option.
+
 ## Quick start
 
 ### Installation

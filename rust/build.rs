@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 fn main() {
     let manifest_dir = PathBuf::from(std::env::var("CARGO_MANIFEST_DIR").unwrap());
-    let package_dir = manifest_dir.join("..").join("pocket_tts");
+    let package_dir = manifest_dir.join("..").join("pocket_tts_timestamped");
     let configs_dir = package_dir.join("config");
     let index_html = package_dir.join("static").join("index.html");
 
@@ -26,7 +26,8 @@ fn main() {
         .collect();
     configs.sort();
 
-    let mut out = String::from("/// The configs of `pocket_tts/config`, by language name.\n");
+    let mut out =
+        String::from("/// The configs of `pocket_tts_timestamped/config`, by language name.\n");
     out.push_str("pub const CONFIGS: &[(&str, &str)] = &[\n");
     for (name, path) in configs.iter() {
         println!("cargo:rerun-if-changed={}", path.display());
