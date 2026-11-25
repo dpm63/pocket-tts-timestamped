@@ -764,7 +764,9 @@ class TTSModel(nn.Module):
                 based on text length (1-3 frames).
             copy_state: Whether to create a deep copy of the model state before
                 generation. If True, preserves the original state for reuse.
-                If False, modifies the input state in-place. Defaults to True.
+                If False, modifies the input state in-place: a long text is generated in
+                chunks that each start from the voice prompt, so only the last chunk is
+                generated in the input state (earlier ones use a copy). Defaults to True.
             max_tokens: Long texts are generated in chunks of at most this many tokens.
                 Defaults to 50, or 25 with `teacher_force_previous_chunk`.
             teacher_force_previous_chunk: When True, each chunk after the first is generated
@@ -842,7 +844,9 @@ class TTSModel(nn.Module):
                 based on text length (1-3 frames). Defaults to None.
             copy_state: Whether to create a deep copy of the model state before
                 generation. If True, preserves the original state for reuse.
-                If False, modifies the input state in-place. Defaults to True.
+                If False, modifies the input state in-place: a long text is generated in
+                chunks that each start from the voice prompt, so only the last chunk is
+                generated in the input state (earlier ones use a copy). Defaults to True.
             max_tokens: Long texts are generated in chunks of at most this many tokens.
                 Defaults to 50, or 25 with `teacher_force_previous_chunk`.
             teacher_force_previous_chunk: When True, each chunk after the first is generated
@@ -886,10 +890,11 @@ class TTSModel(nn.Module):
         if stop is None:
             stop = threading.Event()
 
-        prev_latents: list[torch.Tensor] = []
-        for chunk in self._prepare_text_chunks(
+        prepared_chunks = self._prepare_text_chunks(
             text_to_generate, max_tokens, frames_after_eos, teacher_force_previous_chunk
-        ):
+        )
+        prev_latents: list[torch.Tensor] = []
+        for i, chunk in enumerate(prepared_chunks):
             if stop.is_set():
                 break
             forced = None
@@ -902,7 +907,10 @@ class TTSModel(nn.Module):
                 model_state=model_state,
                 text_to_generate=text,
                 frames_after_eos=chunk.frames_after_eos,
-                copy_state=copy_state or teacher_force_previous_chunk,
+                # Every chunk starts from the voice state: only the last one may consume it.
+                copy_state=copy_state
+                or teacher_force_previous_chunk
+                or i < len(prepared_chunks) - 1,
                 stop=stop,
                 latents_out=prev_latents if teacher_force_previous_chunk else None,
                 forced_latents=forced,
@@ -1054,7 +1062,9 @@ class TTSModel(nn.Module):
         )
         time_offset = 0.0
         prev_latents: list[torch.Tensor] = []
-        for timestamp_chunk, chunk in zip(timestamp_chunks, prepared_chunks, strict=True):
+        for i, (timestamp_chunk, chunk) in enumerate(
+            zip(timestamp_chunks, prepared_chunks, strict=True)
+        ):
             if stop.is_set():
                 break
             forced = None
@@ -1069,7 +1079,10 @@ class TTSModel(nn.Module):
                 model_state=model_state,
                 timestamp_chunk=timestamp_chunk,
                 frames_after_eos=chunk.frames_after_eos,
-                copy_state=copy_state or teacher_force_previous_chunk,
+                # Every chunk starts from the voice state: only the last one may consume it.
+                copy_state=copy_state
+                or teacher_force_previous_chunk
+                or i < len(prepared_chunks) - 1,
                 time_offset=time_offset,
                 stop=stop,
                 latents_out=prev_latents if teacher_force_previous_chunk else None,
@@ -1389,7 +1402,7 @@ class TTSModel(nn.Module):
                 assert timer.elapsed_time_ms is not None
                 steps_times.append(timer.elapsed_time_ms)
             else:
-                if os.environ.get("KPOCKET_TTS_ERROR_WITHOUT_EOS", "0") == "1":
+                if os.environ.get("POCKET_TTS_ERROR_WITHOUT_EOS", "0") == "1":
                     raise RuntimeError("Generation reached maximum length without EOS!")
                 logger.warning(
                     "Maximum generation length reached without EOS, this very often indicates an error."

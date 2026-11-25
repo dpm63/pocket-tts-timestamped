@@ -11,6 +11,7 @@ import torch
 from torch import nn
 
 import pocket_tts_timestamped.timestamps.alignment as timestamp_alignment
+from pocket_tts_timestamped.models.text_chunking import prepare_text_prompt
 from pocket_tts_timestamped.models.tts_model import TTSModel, _PreparedTextChunk
 from pocket_tts_timestamped.modules.attention import StreamingMultiheadAttention
 from pocket_tts_timestamped.modules.rope import RotaryEmbedding
@@ -688,6 +689,28 @@ def test_timestamp_chunks_use_production_tokenizer_for_canonical_unicode(
     assert [word.text for word in chunk.words] == list(expected_words)
 
 
+@pytest.mark.parametrize(
+    ("source_text", "expected_words"),
+    [
+        ('"hola," dijo ella', ["hola", "dijo", "ella"]),
+        ("«el café» está aquí", ["el", "café", "está", "aquí"]),
+    ],
+)
+def test_timestamp_chunks_map_words_capitalized_after_an_opening_quote(
+    spanish_timestamp_tokenizer, source_text, expected_words
+):
+    # prepare_text_prompt capitalizes the first letter after opening quotes and brackets.
+    prepared, _ = prepare_text_prompt(source_text, True, False, True, True, {})
+    assert prepared.strip()[1].isupper()
+    chunk = build_timestamp_text_chunks(source_text, [prepared], spanish_timestamp_tokenizer)[0]
+
+    assert chunk.prepared_tokens is not None
+    assert chunk.prepared_tokens[0].tolist() == spanish_timestamp_tokenizer.encode(chunk.text)
+    assert [word.text for word in chunk.words] == expected_words
+    for word in chunk.words:
+        assert source_text[word.begin : word.end] == word.text
+
+
 def test_timestamp_chunks_support_sentencepiece_model_configs():
     # The small English configs ship a SentencePiece `.model` rather than a tokenizer.json.
     lookup_table = load_config(CONFIGS_DIR / "english_2m_2026-10.yaml").flow_lm.lookup_table
@@ -883,7 +906,9 @@ def test_timestamp_stream_stop_and_cleanup_leave_caller_event_owned_by_caller(mo
     model.mimi = FakeMimi()  # ty: ignore[invalid-assignment]
     model._flow_lm_current_end = lambda _state: 0  # ty: ignore[invalid-assignment]
     model._expand_kv_cache = lambda *a, **k: None  # ty: ignore[invalid-assignment]
-    model._estimate_max_gen_len = lambda _count: 10  # ty: ignore[invalid-assignment]
+    # Room for EOS at _MIN_FRAMES_BEFORE_EOS plus the EOS tail: running out of budget is an
+    # error under tests/conftest.py's POCKET_TTS_ERROR_WITHOUT_EOS.
+    model._estimate_max_gen_len = lambda _count: 20  # ty: ignore[invalid-assignment]
     steps = []
     started = threading.Event()
     release = threading.Event()
@@ -1088,3 +1113,20 @@ def test_timestamped_audio_matches_ordinary_audio_with_teacher_forced_chunks(
     assert [word.word_index for word in result.words] == sorted(
         word.word_index for word in result.words
     )
+
+
+def test_timestamped_audio_with_copy_state_false_starts_every_chunk_from_the_voice(
+    spanish_timestamp_model_and_voice_state, monkeypatch
+):
+    model, voice_state = spanish_timestamp_model_and_voice_state
+    text = "el café está aquí, la casa está allí."
+    monkeypatch.setattr(model, "max_decoder_frames_per_call", 1)
+    torch.manual_seed(123)
+    expected = model.generate_audio(voice_state, text, max_tokens=6, frames_after_eos=0)
+    monkeypatch.setattr(model, "max_decoder_frames_per_call", 0)
+    torch.manual_seed(123)
+    result = model.generate_audio_with_timestamps(
+        copy.deepcopy(voice_state), text, max_tokens=6, frames_after_eos=0, copy_state=False
+    )
+    torch.testing.assert_close(result.audio, expected, atol=1e-5, rtol=1e-4)
+    assert result.words

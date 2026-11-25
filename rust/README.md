@@ -114,7 +114,7 @@ frames of margin beyond the estimate, so that an EOS near the estimate still get
 its post-EOS tail. `set_seed` reseeds the noise generator.
 
 Running out of budget before EOS is a warning, as in the CLI, and an error only
-when `KPOCKET_TTS_ERROR_WITHOUT_EOS=1`. Callers that must reject a possibly
+when `POCKET_TTS_ERROR_WITHOUT_EOS=1`. Callers that must reject a possibly
 incomplete result can call `model.set_require_eos(true)` after loading; this
 applies to ordinary and timestamped generation. A normal EOS-tail completion or
 a requested cancellation is never a budget-exhaustion error.
