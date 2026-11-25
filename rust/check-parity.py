@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare Rust alignment against the unchanged Python implementation (no model download)."""
+"""Compare the Rust aligner with the Python implementation, without downloading a model."""
 
 import importlib
 import json
@@ -23,6 +23,30 @@ def log(message: str) -> None:
         f"{datetime.now(timezone.utc).isoformat(timespec='milliseconds')} {message} elapsedMs={int((time.monotonic() - START) * 1000)}",
         flush=True,
     )
+
+
+def voiced_fixtures(
+    alignment: types.ModuleType, torch: types.ModuleType
+) -> list[dict[str, object]]:
+    """Frames around the silence threshold, labelled by Python's `is_voiced`.
+
+    Frames within 0.1% of the threshold are left out: there, the summation order of the energy
+    (BLAS in Python, sequential in Rust) can decide, and neither answer is wrong.
+    """
+    randomizer = random.Random(44)
+    threshold = alignment._SILENCE_RMS_THRESHOLD
+    frames: list[dict[str, object]] = [
+        {"pcm": pcm, "voiced": alignment.is_voiced(torch.tensor(pcm, dtype=torch.float32))}
+        for pcm in ([], [0.0] * 1920)
+    ]
+    while len(frames) < 100:
+        rms = 10 ** randomizer.uniform(-4, -2)
+        pcm = torch.tensor([randomizer.gauss(0, rms) for _ in range(1920)], dtype=torch.float32)
+        energy = torch.dot(pcm, pcm).item()
+        if abs(energy / (threshold**2 * pcm.numel()) - 1) < 1e-3:
+            continue
+        frames.append({"pcm": pcm.tolist(), "voiced": alignment.is_voiced(pcm)})
+    return frames
 
 
 def main() -> None:
@@ -106,11 +130,12 @@ def main() -> None:
                 "expected": expected,
             }
         )
+    voiced_frames = voiced_fixtures(alignment, torch)
     with tempfile.TemporaryDirectory(prefix="pocket-timestamp-parity-") as folder:
         fixture = Path(folder) / "cases.json"
-        fixture.write_text(json.dumps(cases))
+        fixture.write_text(json.dumps({"alignment": cases, "voiced": voiced_frames}))
         cargo = shutil.which("cargo") or str(Path.home() / ".cargo/bin/cargo")
-        log("PHASE Rust reference fixtures count=200")
+        log(f"PHASE Rust reference fixtures count=200 voicedFrames={len(voiced_frames)}")
         subprocess.run(
             [
                 cargo,

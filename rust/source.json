@@ -2,8 +2,9 @@
   "upstreamRelease": "4.0.1",
   "upstreamCommit": "a922b912dfa366975294afb568d815b305acde5d",
   "adaptations": [
-    "embed stable configs locally",
-    "renamed fork Python static asset path"
+    "embed the configs of pocket_tts_timestamped/config (the fork's renamed package)",
+    "read the web page from pocket_tts_timestamped/static",
+    "keep rust/src/text.rs from this repository's main (813d892a64a69894750d7f42bab129ea5804a654), whose text chunking postdates 4.0.1"
   ],
   "wordTimestamps": true,
   "importedRustFiles": {
@@ -21,7 +22,6 @@
     "rust/src/model.rs": "13744add16efe18dddcc550876a895e4ab95d1f7ebcfe9287a5192c1b0e11a88",
     "rust/src/rng.rs": "93795585b2f2fe06db706b3eae181798f7aca29917deeaa3fdb54dae2909f6a3",
     "rust/src/server.rs": "a17050a5ed2fc4ac69497d3fe74f7f60f0ac3ddc7dcbcc9e932ab1ee6e9bc68b",
-    "rust/src/text.rs": "dbdbb2d070b280109b0ea45c0b39ef8b90d66df3f387e71ab40db940a1ab0172",
     "rust/src/tokenizer.rs": "6a773be3cdd1a1b25e2de728d844f662dfbc1975767fe59b094c6a5bcbef5103",
     "rust/src/weights.rs": "65d1488fd4b2cccccd5a52a7bca6a079145d999594e50542b96d20e5b1833aff"
   },

@@ -20,12 +20,13 @@ use std::sync::{Arc, Mutex};
 use std::time::Instant;
 use xn::{BackendQ, Tensor, WithDTypeF};
 
-/// The backends this binary runs on: the CPU, with f32 or int8 weights.
+/// A generated latent and, when timing, the unit scores of the selected heads for that frame.
 struct GeneratedFrame<T: WithDTypeF, B: xn::Backend> {
     latent: Tensor<T, B>,
     scores: Option<Vec<f32>>,
 }
 
+/// The backends this binary runs on: the CPU, with f32 or int8 weights.
 pub trait CpuBackend: BackendQ<B = xn::CpuDevice> {}
 impl<Q: BackendQ<B = xn::CpuDevice>> CpuBackend for Q {}
 
@@ -38,8 +39,8 @@ const MIN_FRAMES_BEFORE_EOS: usize = 6;
 // work: a blocked PCM consumer must not turn the next decode into seconds of audio.
 const LATENT_QUEUE_CAPACITY: usize = 4;
 const MAX_DECODE_FRAMES: usize = 4;
-// Preserve the former ONNX ceiling margin independently of the requested
-// post-EOS tail (already supplied by the app as six/eight frames).
+// Frames of budget beyond the estimate, so that an EOS near the estimate still has room for
+// its post-EOS tail.
 const COMPLETION_MARGIN_FRAMES: usize = 3;
 
 fn completion_budget(estimated: usize) -> Result<usize> {
@@ -468,8 +469,7 @@ impl<Q: CpuBackend> TtsModel<Q> {
     }
 
     /// Opt into an error when generation exhausts its budget before the EOS tail.
-    /// The default preserves the standard CLI warning; the upstream environment
-    /// override `KPOCKET_TTS_ERROR_WITHOUT_EOS=1` also requires an error.
+    /// By default it is only a warning, unless `KPOCKET_TTS_ERROR_WITHOUT_EOS=1` is set.
     pub fn set_require_eos(&mut self, required: bool) {
         self.require_eos = required;
     }
@@ -550,6 +550,8 @@ impl<Q: CpuBackend> TtsModel<Q> {
                     && h.head < self.config.flow_lm.transformer.num_heads),
                 "Timestamp head outside model"
             );
+            // The text keys follow the voice directly: `Config::to_ptts` never sets a
+            // `transcript_in_segment` sink, which `prompt_text` would insert before them.
             state.flow_lm_state.transformer_state.attention_capture =
                 Some(ptts::timestamp_attention::AttentionCapture::new(
                     heads.iter().map(|h| (h.layer, h.head)).collect(),
@@ -731,8 +733,8 @@ impl<Q: CpuBackend> TtsModel<Q> {
                     {
                         callback(event)?;
                     }
-                    // Decode in batches as before, but deliver each timed frame at its
-                    // real PCM boundary: consumers hold one pending word marker.
+                    // Hand each timed frame over on its own, right after its events, so that
+                    // a consumer holding one pending word marker never sees two at once.
                     on_chunk(audio)?;
                     total += audio.len();
                 }
@@ -802,7 +804,7 @@ mod tests {
         assert!(timestamp_frame_size(24000, f64::NAN).is_err());
     }
     #[test]
-    fn late_eos_retains_the_onnx_completion_margin() {
+    fn a_late_eos_has_room_for_its_tail() {
         // 45 tokens: ceil((45 / 3 + 2) * 12.5) = 213. EOS at 207 needs
         // a loop reaching 213 to finish a six-frame tail, not a failure.
         let estimated = 213;

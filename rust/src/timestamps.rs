@@ -1,4 +1,4 @@
-//! Streaming monotone word alignment, ported from this fork's Python timestamps/alignment.py.
+//! Streaming monotone word alignment, ported from `pocket_tts_timestamped/timestamps/alignment.py`.
 //! All offsets are caller-owned text coordinates; times are source PCM samples, never wall time.
 use anyhow::{Result, ensure};
 use serde::{Deserialize, Serialize};
@@ -65,8 +65,8 @@ pub struct WordEvent {
     pub is_end: bool,
 }
 
-/// Select only calibrations tied to known source weights, not merely a language/architecture.
-/// Unknown checkpoints keep ordinary synthesis and the sentence-level presentation fallback.
+/// The heads calibrated in `calibrations.json` for weights with this SHA-256, language and shape.
+/// Unknown weights get `None`, never the heads of another checkpoint of the same language.
 pub fn calibrated_heads(
     sha: &str,
     language: &str,
@@ -96,9 +96,14 @@ pub fn calibrated_heads(
     Ok(None)
 }
 
+/// Python's `_SILENCE_RMS_THRESHOLD`: the f32 value of 1e-3, used in double precision.
+const SILENCE_RMS_THRESHOLD: f64 = 1e-3f32 as f64;
+
+/// Whether a frame's mean energy exceeds the silence threshold, as Python's `is_voiced`, which
+/// compares an f32 dot product against `threshold ** 2 * n` in double precision.
 pub fn is_voiced(pcm: &[f32]) -> bool {
     let energy: f32 = pcm.iter().map(|v| v * v).sum();
-    energy > 1e-6 * pcm.len() as f32
+    !pcm.is_empty() && f64::from(energy) > SILENCE_RMS_THRESHOLD.powi(2) * pcm.len() as f64
 }
 pub struct Alignment {
     units: Vec<Unit>,
@@ -262,6 +267,21 @@ mod tests {
         assert!(!is_voiced(&[]));
         assert!(!is_voiced(&[0.; 1920]));
         assert!(is_voiced(&[0.1; 1920]));
+    }
+    #[test]
+    fn voicing_threshold_is_pythons_f32_rms_squared_in_double_precision() {
+        // Energy 0.00192000007 (an f32): above `1e-6f32 * 1920` in f32, but not above Python's
+        // `float32(1e-3) ** 2 * 1920` = 0.00192000018, so Python calls this frame silent.
+        let mut pcm = [0f32; 1920];
+        pcm[0] = f32::from_bits(0x3d33_7a38);
+        pcm[1] = f32::from_bits(0x38ac_5342);
+        assert_eq!(
+            pcm.iter().map(|v| v * v).sum::<f32>(),
+            f32::from_bits(0x3afb_a883)
+        );
+        assert!(!is_voiced(&pcm));
+        pcm[2] = 1e-4;
+        assert!(is_voiced(&pcm));
     }
 }
 

@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-"""Materialize the pinned XN dependency and selected-head patch, without changing app models."""
+"""Materialize the pinned xn-ptts dependency, with the selected-head patch applied."""
 
 import argparse
 import hashlib
 import json
+import os
+import shutil
+import stat
 import subprocess
+import sys
+import tempfile
 import time
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
 BASE = "7efa26973f81bba42cf2ace8da2c1eb9b605d54d"
+SOURCE = "https://github.com/gabrieldemarmiesse/xn-ptts.git"
 START = time.monotonic()
 
 
@@ -38,6 +45,51 @@ def run(args: list[str], cwd: Path | None = None) -> str:
         ) from error
 
 
+def _remove_tree(path: Path) -> None:
+    # Git marks its object files read-only, which Windows refuses to delete as is.
+    def make_writable_and_retry(function: Callable[[str], object], name: str, _: object) -> None:
+        os.chmod(name, stat.S_IWRITE)
+        function(name)
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(path, onexc=make_writable_and_retry)
+    else:
+        shutil.rmtree(path, onerror=make_writable_and_retry)
+
+
+def fetch(destination: Path) -> None:
+    """Clone and check out BASE beside `destination`, then move it into place.
+
+    An interrupted clone or checkout leaves no half-made `destination`, which later runs would
+    otherwise refuse as a changed HEAD.
+    """
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    staging = Path(tempfile.mkdtemp(prefix=destination.name + ".partial-", dir=destination.parent))
+    try:
+        log("PHASE fetching pinned xn-ptts timeoutSeconds=180")
+        run(["git", "clone", "--no-checkout", SOURCE, str(staging)])
+        run(["git", "checkout", "--detach", BASE], staging)
+        try:
+            staging.rename(destination)
+        except OSError:
+            # A concurrent first run moved its own checkout into place first: use that one,
+            # which `prepare` verifies like any existing cache.
+            if not destination.exists():
+                raise
+            _discard(staging)
+    except BaseException:
+        _discard(staging)
+        raise
+
+
+def _discard(staging: Path) -> None:
+    """Best-effort removal, so that a cleanup failure never hides the error being handled."""
+    try:
+        _remove_tree(staging)
+    except OSError as error:
+        log(f"WARN could not remove {staging}: {error}")
+
+
 def prepare(destination: Path, patch: Path) -> str:
     digest = hashlib.sha256(patch.read_bytes()).hexdigest()
     manifest = json.loads(patch.with_suffix(".json").read_text())
@@ -45,18 +97,7 @@ def prepare(destination: Path, patch: Path) -> str:
         raise RuntimeError("Dependency manifest/patch identity mismatch")
     stamp = destination / ".pocket-timestamp-patch"
     if not destination.exists():
-        destination.parent.mkdir(parents=True, exist_ok=True)
-        log("PHASE fetching pinned xn-ptts timeoutSeconds=180")
-        run(
-            [
-                "git",
-                "clone",
-                "--no-checkout",
-                "https://github.com/gabrieldemarmiesse/xn-ptts.git",
-                str(destination),
-            ]
-        )
-        run(["git", "checkout", "--detach", BASE], destination)
+        fetch(destination)
     if run(["git", "rev-parse", "HEAD"], destination).strip() != BASE:
         raise RuntimeError("Dependency HEAD changed; refusing to overwrite it")
     if not stamp.exists():

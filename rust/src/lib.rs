@@ -1,4 +1,4 @@
-//! Pocket 4.0.1 Rust synthesis with optional streaming word timestamps.
+//! Pocket TTS synthesis, with optional streaming word timestamps.
 pub mod audio;
 pub mod config;
 pub mod defaults;

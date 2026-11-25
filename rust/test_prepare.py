@@ -82,7 +82,8 @@ class PreparationTests(unittest.TestCase):
         digest = module.prepare(self.repo, self.feature)
         self.assertEqual(module.prepare(self.repo, self.feature), digest)
         file = self.repo / "ptts/src/lib.rs"
-        file.write_text(file.read_text() + "\n// extra edit\n")
+        # LF only: on Windows, a CRLF rewrite would also edit the hunk and fail earlier.
+        file.write_text(file.read_text() + "\n// extra edit\n", newline="\n")
         with self.assertRaisesRegex(RuntimeError, "content differs"):
             module.prepare(self.repo, self.feature)
 
@@ -116,6 +117,45 @@ class PreparationTests(unittest.TestCase):
             .strip(),
             "true",
         )
+
+    def test_interrupted_first_fetch_leaves_nothing_and_the_next_run_succeeds(self):
+        destination = self.root / "fresh-cache"
+        real_run = module.run
+
+        def fail_checkout(args: list[str], cwd: Path | None = None) -> str:
+            if args[1] == "checkout":
+                raise RuntimeError("TimeoutExpired: simulated interrupted checkout")
+            return real_run(args, cwd)
+
+        with patch.object(module, "SOURCE", str(self.repo)):
+            with (
+                patch.object(module, "run", side_effect=fail_checkout),
+                self.assertRaisesRegex(RuntimeError, "simulated interrupted checkout"),
+            ):
+                module.prepare(destination, self.feature)
+            self.assertEqual(list(self.root.glob("fresh-cache*")), [])
+            digest = module.prepare(destination, self.feature)
+        self.assertEqual(module.prepare(destination, self.feature), digest)
+
+    def test_concurrent_first_fetch_uses_the_checkout_that_won(self):
+        destination = self.root / "shared-cache"
+        real_run = module.run
+        raced = []
+
+        def other_run_finishes_first(args: list[str], cwd: Path | None = None) -> str:
+            output = real_run(args, cwd)
+            if args[1] == "checkout" and not raced:
+                # Another process completes its fetch while this one is checking out.
+                raced.append(True)
+                module.fetch(destination)
+            return output
+
+        with patch.object(module, "SOURCE", str(self.repo)):
+            with patch.object(module, "run", side_effect=other_run_finishes_first):
+                module.fetch(destination)
+            self.assertEqual(list(self.root.glob("shared-cache.partial-*")), [])
+            digest = module.prepare(destination, self.feature)
+        self.assertEqual(module.prepare(destination, self.feature), digest)
 
     def test_untracked_build_script_is_rejected(self):
         module.prepare(self.repo, self.feature)

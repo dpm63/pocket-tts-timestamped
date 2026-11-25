@@ -4,6 +4,8 @@ on:
     paths:
       - 'rust/**'
       - 'pocket_tts_timestamped/timestamps/**'
+      - 'pocket_tts_timestamped/config/**'
+      - 'pocket_tts_timestamped/static/index.html'
       - '.github/workflows/rust-timestamps.yml'
 permissions:
   contents: read
@@ -30,5 +32,5 @@ jobs:
         run: python3 rust/test_prepare.py
       - name: Install CPU-only reference dependency
         run: python3 -m pip install torch==2.5.1 --index-url https://download.pytorch.org/whl/cpu
-      - name: Compare unchanged Python alignment
+      - name: Compare with the Python alignment
         run: python3 rust/check-parity.py
