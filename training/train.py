@@ -14,6 +14,7 @@ if __name__ == "__main__":
     os.environ.setdefault("PYTORCH_CUDA_ALLOC_CONF", "expandable_segments:True")
 
 import logging
+import multiprocessing
 import signal
 import sys
 import time
@@ -51,6 +52,7 @@ from training.train_utils import (
     ensure_train_latents,
     git_commit,
     lr_at,
+    rss_gib,
     setup_logging,
     write_samples,
 )
@@ -249,6 +251,10 @@ def main(config_path: str):
             group["lr"] = lr * group.get("lr_scale", 1.0)
         optimizer.zero_grad()
         for micro in range(args.grad_accum_steps):
+            # Under DDP, all-reduce only on the last micro-batch. DDP decides at forward time
+            # whether the backward synchronizes, so the flag (what DDP.no_sync sets) goes first.
+            if isinstance(run.wrapped, DDP):
+                run.wrapped.require_backward_grad_sync = micro == args.grad_accum_steps - 1
             if cache is not None:
                 (
                     latents,
@@ -288,14 +294,7 @@ def main(config_path: str):
                 metrics.update(refl_stats)
                 if reward_loss is not None:
                     loss = loss + reward_loss
-            # Under DDP, allreduce only on the last micro-batch.
-            last_micro = micro == args.grad_accum_steps - 1
-            scaled = loss / args.grad_accum_steps
-            if not last_micro and isinstance(run.wrapped, DDP):
-                with run.wrapped.no_sync():
-                    scaled.backward()
-            else:
-                scaled.backward()
+            (loss / args.grad_accum_steps).backward()
         if refl_rewards is not None and run.world_size > 1:
             average_grads([p for p in model.parameters() if p.requires_grad])
         grad_norm = torch.nn.utils.clip_grad_norm_(model.parameters(), args.optim.max_norm)
@@ -337,10 +336,26 @@ def main(config_path: str):
             last_log, steps_since_log = now, 0
             values = {k: v.item() for k, v in metrics.items() if v.numel() == 1}
             shown = {k: f"{v:.4f}" for k, v in values.items()}
-            logger.info(
-                f"step {step + 1} | lr {lr:.2e} | grad {grad_norm:.2f} | {speed:.2f} it/s | {shown}"
+            # Host memory of this process and of its children (the dataloader processes): a
+            # steady climb over a long run points at a leak before the node starts swapping.
+            rss, child_rss = (
+                rss_gib(os.getpid()),
+                sum(rss_gib(p.pid) for p in multiprocessing.active_children() if p.pid),
             )
-            progress.log("train", step + 1, values, lr=lr, grad_norm=grad_norm.item(), it_s=speed)
+            logger.info(
+                f"step {step + 1} | lr {lr:.2e} | grad {grad_norm:.2f} | {speed:.2f} it/s | "
+                f"rss {rss:.1f}+{child_rss:.1f} GiB | {shown}"
+            )
+            progress.log(
+                "train",
+                step + 1,
+                values,
+                lr=lr,
+                grad_norm=grad_norm.item(),
+                it_s=speed,
+                rss_gib=rss,
+                child_rss_gib=child_rss,
+            )
         if rank == 0 and step - start_step == VERBOSE_STEPS - 1:
             logger.info(f"per-step logging done, logging every {args.log_freq} steps from now on")
 
